@@ -1,0 +1,33 @@
+services:
+  # [개발 환경]
+  dev:
+    container_name: protostar-fastapi-dev
+    build:
+      context: .
+      target: dev
+    ports:
+      - "5860:8000"
+    volumes:
+      - .:/app
+      # 로컬의 .venv와 컨테이너의 .venv가 섞이지 않도록 익명 볼륨 처리
+      - /app/.venv
+    environment:
+      - APP_ENV=development
+    restart: unless-stopped
+
+  # [운영 환경 시뮬레이션]
+  prod:
+    container_name: protostar-fastapi-prod
+    build:
+      context: .
+      target: runner
+    ports:
+      - "5860:8000"
+    environment:
+      - APP_ENV=production
+    restart: unless-stopped
+
+networks:
+  main-protostar:
+    external: true
+    name: main-protostar

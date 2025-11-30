@@ -1,0 +1,23 @@
+services:
+  fastapi-blue:
+    container_name: main-fastapi-blue
+    image: ${IMAGE_NAME}:${TAG_BLUE}
+    networks:
+      - main-protostar
+    environment:
+      - APP_ENV=production
+    restart: unless-stopped
+
+  fastapi-green:
+    container_name: main-fastapi-green
+    image: ${IMAGE_NAME}:${TAG_GREEN}
+    networks:
+      - main-protostar
+    environment:
+      - APP_ENV=production
+    restart: unless-stopped
+
+networks:
+  main-protostar:
+    external: true
+    name: main-protostar

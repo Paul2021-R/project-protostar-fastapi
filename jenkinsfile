@@ -1,0 +1,155 @@
+def failureStage = "Unknown"
+
+pipeline {
+    agent any
+
+    environment {
+        // [기본 자격 증명]
+        GHCR_CREDS_ID = 'ghcr-creds'
+        GITHUB_CREDS_ID = 'github-creds'
+        TARGET_SSH_CREDS_ID = 'a5-localhost-jenkins'
+        DISCORD_CREDS_ID = 'discord-webhook-url'
+
+        // [서버 정보]
+        TARGET_DEPLOY_SERVER = 'GEEKOM-A5-Server'
+        TARGET_HOST = credentials('ssh-host-creds')
+        TARGET_PORT = credentials('ssh-port-creds')
+        
+        // [프로젝트별 수정 섹션] ========================================================
+        // 1. 이미지 이름
+        IMAGE_NAME = 'ghcr.io/paul2021-r/project-protostar-fastapi'
+        
+        // 2. 배포될 서버 경로 (미리 mkdir로 생성 권장)
+        TARGET_PROJECT_PATH = '/home/hansol/workspace/project-protostar-fastapi'
+        
+        // 3. 인프라 설정 경로
+        TARGET_INFRA_PATH = '/home/hansol/workspace/project-protostar-server-configs/main-server'
+        
+        // 4. Nginx Upstream 파일명 (Main Server에 만들어둬야 함)
+        UPSTREAM_FILE_NAME = 'nginx_upstream_fastapi.conf'
+        // ==============================================================================
+    }
+
+    stages {
+        stage('Checkout') {
+            steps {
+                script {
+                    try {
+                        echo "1. Get the latest code from GitHub"
+                        git credentialsId: GITHUB_CREDS_ID, url: 'https://github.com/Paul2021-R/project-protostar-fastapi.git', branch: 'main'
+                    } catch (Exception e) {
+                        failureStage = "Checkout Stage"
+                        throw e
+                    }
+                }
+            }
+        }
+
+        stage('Build Image') {
+            steps {
+                echo "2. Build New Docker Image"
+                script {
+                    try {
+                        def imageTag = "${IMAGE_NAME}:${env.BUILD_NUMBER}" 
+                        // [핵심] Dockerfile이 ./app 안에 있으므로 경로 지정
+                        sh "docker build -t ${imageTag} ./app" 
+                    } catch (Exception e) {
+                        failureStage = "Build Stage"
+                        throw e
+                    }
+                }
+            }
+        }
+
+        stage('Push to GHCR') {
+            steps {
+                echo "3. Push the Docker Image to GHCR"
+                script {
+                    try {
+                        def imageTag = "${IMAGE_NAME}:${env.BUILD_NUMBER}"
+                        withCredentials([usernamePassword(credentialsId: GHCR_CREDS_ID, usernameVariable: 'USER', passwordVariable: 'TOKEN')]) {
+                            sh "echo ${TOKEN} | docker login ghcr.io -u ${USER} --password-stdin"
+                            sh "docker push ${imageTag}"
+                        }
+                    } catch (Exception e) {
+                        failureStage = "Push to GHCR Stage"
+                        throw e
+                    }
+                }
+            }
+        }
+
+        stage('Deploy to Server') {
+            steps {
+                echo "4. Deploy to ${TARGET_DEPLOY_SERVER}"
+                script {
+                    try {
+                        def deployService = (env.BUILD_NUMBER.toInteger() % 2 == 0) ? "fastapi-green" : "fastapi-blue" 
+                        def imageTag = "${IMAGE_NAME}:${env.BUILD_NUMBER}"
+                        def newTag = "${env.BUILD_NUMBER}"
+                        def tagEnvVar = (deployService == "fastapi-green") ? "TAG_GREEN" : "TAG_BLUE"
+                        
+                        withCredentials([usernamePassword(credentialsId: GHCR_CREDS_ID, usernameVariable: 'GHCR_USER', passwordVariable: 'GHCR_TOKEN')]) {
+                            sshagent(credentials: [TARGET_SSH_CREDS_ID]) {
+                                sh """ 
+                                    ssh -o StrictHostKeyChecking=no -p ${TARGET_PORT} ${TARGET_HOST} '
+                                    set -ex
+
+                                    echo "--- [1/5] Login to GHCR ---"
+                                    echo "${GHCR_TOKEN}" | docker login ghcr.io -u ${GHCR_USER} --password-stdin
+
+                                    echo "--- [2/5] Pull Image (${imageTag}) ---"
+                                    docker pull ${imageTag}
+
+                                    echo "--- [3/5] Deploy Container (${deployService}) ---"
+                                    mkdir -p ${TARGET_PROJECT_PATH}
+                                    cd ${TARGET_PROJECT_PATH}
+                                    
+                                    git pull origin main || git clone https://github.com/Paul2021-R/project-protostar-fastapi.git .
+                                    
+                                    export ${tagEnvVar}="${newTag}"
+                                    docker compose up -d --no-deps --force-recreate ${deployService}
+
+                                    echo "--- [4/5] Switch Nginx Upstream ---"
+                                    cd ${TARGET_INFRA_PATH}
+                                    # sed로 upstream 파일 수정 (Main Server 파일과 일치해야 함)
+                                    # 초기 설정(127.0.0.1 등)을 실제 컨테이너 주소로 변경
+                                    sed -i "s|server .*|server main-${deployService}:8000;|" ./nginx/${UPSTREAM_FILE_NAME}
+
+                                    echo "--- [5/5] Reload Main Nginx ---"
+                                    docker exec main-nginx nginx -s reload
+
+                                    echo "--- Cleanup ---"
+                                    docker logout ghcr.io
+                                    '
+                                """
+                            }
+                        }
+                    } catch (Exception e) {
+                        failureStage = "Deploy Stage"
+                        throw e
+                    }
+                }
+            }
+        }
+    }
+
+    post {
+        success {
+            script {
+                withCredentials([string(credentialsId: DISCORD_CREDS_ID, variable: 'DISCORD_URL')]) {
+                    def message = "{\"content\": \"🚀 [FastAPI] Build #${env.BUILD_NUMBER} Success!\"}"
+                    sh "curl -X POST -H 'Content-Type: application/json' --data '${message}' ${DISCORD_URL}"
+                }
+            }
+        }
+        failure {
+            script {
+                withCredentials([string(credentialsId: DISCORD_CREDS_ID, variable: 'DISCORD_URL')]) {
+                    def message = "{\"content\": \"🔥 [FastAPI] Build #${env.BUILD_NUMBER} Failed at ${failureStage}.\"}"
+                    sh "curl -X POST -H 'Content-Type: application/json' --data '${message}' ${DISCORD_URL}"
+                }    
+            }
+        }
+    }
+}

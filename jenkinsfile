@@ -108,7 +108,7 @@ pipeline {
                                     git pull origin main || git clone https://github.com/Paul2021-R/project-protostar-fastapi.git .
                                     
                                     export ${tagEnvVar}="${newTag}"
-                                    docker compose up -d --no-deps --force-recreate ${deployService}
+                                    docker compose --env-file init.env up -d --no-deps --force-recreate ${deployService}
 
                                     echo "--- [4/5] Switch Nginx Upstream ---"
                                     cd ${TARGET_INFRA_PATH}

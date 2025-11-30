@@ -117,7 +117,7 @@ pipeline {
                                     sed -i "s|server .*|server main-${deployService}:8000;|" ./nginx/${UPSTREAM_FILE_NAME}
 
                                     echo "--- [5/5] Reload Main Nginx ---"
-                                    docker exec main-nginx nginx -s reload
+                                    docker exec main-protostar-nginx nginx -s reload
 
                                     echo "--- Cleanup ---"
                                     docker logout ghcr.io

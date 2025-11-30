@@ -1,7 +1,7 @@
 services:
   fastapi-blue:
     container_name: main-fastapi-blue
-    image: ${IMAGE_NAME}:${TAG_BLUE}
+    image: ${FASTAPI_BLUE_IMAGE}:${TAG_BLUE}
     networks:
       - main-protostar
     environment:
@@ -10,7 +10,7 @@ services:
 
   fastapi-green:
     container_name: main-fastapi-green
-    image: ${IMAGE_NAME}:${TAG_GREEN}
+    image: ${FASTAPI_GREEN_IMAGE}:${TAG_GREEN}
     networks:
       - main-protostar
     environment:

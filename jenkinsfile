@@ -87,8 +87,11 @@ pipeline {
                         def deployService = (env.BUILD_NUMBER.toInteger() % 2 == 0) ? "fastapi-green" : "fastapi-blue" 
                         def imageTag = "${IMAGE_NAME}:${env.BUILD_NUMBER}"
                         def newTag = "${env.BUILD_NUMBER}"
+                        def earlyTag = "${env.BUILD_NUMBER.toInteger() - 1}"
+
                         def tagEnvVar = (deployService == "fastapi-green") ? "TAG_GREEN" : "TAG_BLUE"
-                        
+                        def tagOppositeEnvVar = (deployService == "fastapi-green") ? "TAG_BLUE" : "TAG_GREEN"                        
+
                         withCredentials([usernamePassword(credentialsId: GHCR_CREDS_ID, usernameVariable: 'GHCR_USER', passwordVariable: 'GHCR_TOKEN')]) {
                             sshagent(credentials: [TARGET_SSH_CREDS_ID]) {
                                 sh """ 
@@ -108,6 +111,8 @@ pipeline {
                                     git pull origin main || git clone https://github.com/Paul2021-R/project-protostar-fastapi.git .
                                     
                                     export ${tagEnvVar}="${newTag}"
+                                    export ${tagOppositeEnvVar}="${earlyTag}"
+
                                     docker compose --env-file init.env up -d --no-deps --force-recreate ${deployService}
 
                                     echo "--- [4/5] Switch Nginx Upstream ---"

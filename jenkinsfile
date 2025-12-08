@@ -28,6 +28,8 @@ pipeline {
         // 4. Nginx Upstream 파일명 (Main Server에 만들어둬야 함)
         UPSTREAM_FILE_NAME = 'nginx_upstream_fastapi.conf'
         // ==============================================================================
+    }
+
     parameters {
         choice(name: 'TARGET_COLOR', choices: ['Auto', 'Blue', 'Green', 'Both'], description: 'Select the color to deploy. Auto follows BUILD_NUMBER odd/even logic.')
         choice(name: 'DEPLOY_ACTION', choices: ['Full Deploy', 'Build & Deploy Only', 'Switch Traffic Only'], description: 'Select the scope of the deployment.')

@@ -28,6 +28,9 @@ pipeline {
         // 4. Nginx Upstream 파일명 (Main Server에 만들어둬야 함)
         UPSTREAM_FILE_NAME = 'nginx_upstream_fastapi.conf'
         // ==============================================================================
+    parameters {
+        choice(name: 'TARGET_COLOR', choices: ['Auto', 'Blue', 'Green', 'Both'], description: 'Select the color to deploy. Auto follows BUILD_NUMBER odd/even logic.')
+        choice(name: 'DEPLOY_ACTION', choices: ['Full Deploy', 'Build & Deploy Only', 'Switch Traffic Only'], description: 'Select the scope of the deployment.')
     }
 
     stages {
@@ -46,6 +49,9 @@ pipeline {
         }
 
         stage('Build Image') {
+            when {
+                expression { params.DEPLOY_ACTION != 'Switch Traffic Only' }
+            }
             steps {
                 echo "2. Build New Docker Image"
                 script {
@@ -62,6 +68,9 @@ pipeline {
         }
 
         stage('Push to GHCR') {
+            when {
+                expression { params.DEPLOY_ACTION != 'Switch Traffic Only' }
+            }
             steps {
                 echo "3. Push the Docker Image to GHCR"
                 script {
@@ -84,50 +93,89 @@ pipeline {
                 echo "4. Deploy to ${TARGET_DEPLOY_SERVER}"
                 script {
                     try {
-                        def deployService = (env.BUILD_NUMBER.toInteger() % 2 == 0) ? "fastapi-green" : "fastapi-blue" 
+                        // 1. Determine Target Services
+                        def deployServices = []
+                        if (params.TARGET_COLOR == 'Both') {
+                             deployServices = ['fastapi-blue', 'fastapi-green']
+                        } else if (params.TARGET_COLOR == "Auto") {
+                             deployServices = [(env.BUILD_NUMBER.toInteger() % 2 == 0) ? "fastapi-green" : "fastapi-blue"]
+                        } else if (params.TARGET_COLOR == "Blue") {
+                             deployServices = ["fastapi-blue"]
+                        } else {
+                             deployServices = ["fastapi-green"]
+                        }
+                        
+                        echo "Target Services via ${params.TARGET_COLOR}: ${deployServices}"
+
                         def imageTag = "${IMAGE_NAME}:${env.BUILD_NUMBER}"
                         def newTag = "${env.BUILD_NUMBER}"
-                        def earlyTag = "${env.BUILD_NUMBER.toInteger() - 1}"
-
-                        def tagEnvVar = (deployService == "fastapi-green") ? "TAG_GREEN" : "TAG_BLUE"
-                        def tagOppositeEnvVar = (deployService == "fastapi-green") ? "TAG_BLUE" : "TAG_GREEN"                        
+                        def earlyTag = "${Math.max(1, env.BUILD_NUMBER.toInteger() - 1)}"
 
                         withCredentials([usernamePassword(credentialsId: GHCR_CREDS_ID, usernameVariable: 'GHCR_USER', passwordVariable: 'GHCR_TOKEN')]) {
                             sshagent(credentials: [TARGET_SSH_CREDS_ID]) {
-                                sh """ 
-                                    ssh -o StrictHostKeyChecking=no -p ${TARGET_PORT} ${TARGET_HOST} '
-                                    set -ex
+                                // 2. Deployment Script Construction
+                                def commands = []
 
-                                    echo "--- [1/5] Login to GHCR ---"
-                                    echo "${GHCR_TOKEN}" | docker login ghcr.io -u ${GHCR_USER} --password-stdin
+                                // Common Setup
+                                commands << "set -e"
 
-                                    echo "--- [2/5] Pull Image (${imageTag}) ---"
-                                    docker pull ${imageTag}
+                                // Action: Build & Deploy (or Full)
+                                if (params.DEPLOY_ACTION != 'Switch Traffic Only') {
+                                    commands << "echo '--- [1/5] Login to GHCR ---'"
+                                    commands << "echo '${GHCR_TOKEN}' | docker login ghcr.io -u ${GHCR_USER} --password-stdin"
 
-                                    echo "--- [3/5] Deploy Container (${deployService}) ---"
-                                    mkdir -p ${TARGET_PROJECT_PATH}
-                                    cd ${TARGET_PROJECT_PATH}
+                                    commands << "echo '--- [2/5] Pull Image (${imageTag}) ---'"
+                                    commands << "docker pull ${imageTag}"
+
+                                    commands << "echo '--- [3/5] Deploy Container(s) ---'"
+                                    commands << "mkdir -p ${TARGET_PROJECT_PATH}"
+                                    commands << "cd ${TARGET_PROJECT_PATH}"
                                     
-                                    git pull origin main || git clone https://github.com/Paul2021-R/project-protostar-fastapi.git .
+                                    commands << "git pull origin main || git clone https://github.com/Paul2021-R/project-protostar-fastapi.git ."
                                     
-                                    export ${tagEnvVar}="${newTag}"
-                                    export ${tagOppositeEnvVar}="${earlyTag}"
+                                    // Loop through services
+                                    deployServices.each { service ->
+                                        def tagEnvVar = (service == "fastapi-green") ? "TAG_GREEN" : "TAG_BLUE"
+                                        commands << "echo '--- Exporting new tag for ${service}: ${tagEnvVar}=${newTag} ---'"
+                                        commands << "export ${tagEnvVar}='${newTag}'"
+                                    }
 
-                                    docker compose --env-file init.env up -d --no-deps --force-recreate ${deployService}
+                                    // If 'Single' case, we formerly exported the opposite tag too.
+                                    if (params.TARGET_COLOR != 'Both') {
+                                        def activeService = deployServices[0]
+                                        def tagOppositeEnvVar = (activeService == "fastapi-green") ? "TAG_BLUE" : "TAG_GREEN"
+                                        commands << "export ${tagOppositeEnvVar}='${earlyTag}'"
+                                    }
 
-                                    echo "--- [4/5] Switch Nginx Upstream ---"
-                                    cd ${TARGET_INFRA_PATH}
-                                    # sed로 upstream 파일 수정 (Main Server 파일과 일치해야 함)
-                                    # 초기 설정(127.0.0.1 등)을 실제 컨테이너 주소로 변경
-                                    sed -i "s|server .*|server main-${deployService}:8000;|" ./nginx/${UPSTREAM_FILE_NAME}
+                                    deployServices.each { service ->
+                                        commands << "docker compose --env-file init.env up -d --no-deps --force-recreate ${service}"
+                                    }
+                                    
+                                    commands << "echo '--- Cleanup ---'"
+                                    commands << "docker logout ghcr.io"
+                                }
 
-                                    echo "--- [5/5] Reload Main Nginx ---"
-                                    docker exec main-protostar-nginx nginx -s reload
+                                // Action: Switch Traffic (or Full)
+                                if (params.DEPLOY_ACTION != 'Build & Deploy Only') {
+                                    commands << "echo '--- [4/5] Switch Nginx Upstream ---'"
+                                    
+                                    if (params.TARGET_COLOR != 'Both') {
+                                        def targetService = deployServices[0]
+                                        commands << "cd ${TARGET_INFRA_PATH}"
+                                        // sed로 upstream 파일 수정 (Main Server 파일과 일치해야 함)
+                                        commands << "sed -i 's|server .*|server main-${targetService}:8000;|' ./nginx/${UPSTREAM_FILE_NAME}"
+                                    } else {
+                                        commands << "echo 'Skipping Nginx Upstream Switch because TARGET_COLOR is Both (Preserving current active upstream)'"
+                                    }
 
-                                    echo "--- Cleanup ---"
-                                    docker logout ghcr.io
-                                    '
-                                """
+                                    commands << "echo '--- [5/5] Reload Main Nginx ---'"
+                                    commands << "docker exec main-protostar-nginx nginx -s reload"
+                                }
+                                
+                                commands << "echo '--- All Deploy Proccess is done ---'"
+
+                                def deployScript = commands.join('\n')
+                                sh "ssh -o StrictHostKeyChecking=no -o ConnectTimeout=10 -o ServerAliveInterval=60 -o ServerAliveCountMax=3 -p ${TARGET_PORT} ${TARGET_HOST} \"${deployScript}\""
                             }
                         }
                     } catch (Exception e) {

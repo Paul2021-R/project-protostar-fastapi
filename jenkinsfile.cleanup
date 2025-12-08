@@ -1,0 +1,54 @@
+pipeline {
+    agent any
+
+    environment {
+        TARGET_SSH_CREDS_ID = 'a5-localhost-jenkins'
+        TARGET_HOST = credentials('ssh-host-creds')
+        TARGET_PORT = credentials('ssh-port-creds')
+        
+        DISCORD_CREDS_ID = 'discord-webhook-url'
+    }
+
+    parameters {
+        booleanParam(name: 'PRUNE_ALL', defaultValue: false, description: 'If checked, runs "docker system prune -a --force" cleaning build cache as well. Default is "docker image prune -f" which only cleans dangling images.')
+    }
+
+    stages {
+        stage('Connect & Prune') {
+            steps {
+                script {
+                    try {
+                        sshagent(credentials: [TARGET_SSH_CREDS_ID]) {
+                            def pruneCmd = params.PRUNE_ALL ? "docker system prune -a --force" : "docker image prune -f"
+                            echo "Running cleanup command: ${pruneCmd}"
+                            
+                            sh "ssh -o StrictHostKeyChecking=no -p ${TARGET_PORT} ${TARGET_HOST} '${pruneCmd}'"
+                        }
+                        echo "Cleanup successful."
+                    } catch (Exception e) {
+                        error "Cleanup failed: ${e.message}"
+                    }
+                }
+            }
+        }
+    }
+
+    post {
+        success {
+            script {
+                withCredentials([string(credentialsId: DISCORD_CREDS_ID, variable: 'DISCORD_URL')]) {
+                    def message = "{\"content\": \"🧹 Cleanup Job Successful : **[${env.JOB_NAME}]** - **#${env.BUILD_NUMBER}**\"}"
+                    sh "curl -X POST -H 'Content-Type: application/json' --data '${message}' ${DISCORD_URL}"
+                }
+            }
+        }
+        failure {
+            script {
+                withCredentials([string(credentialsId: DISCORD_CREDS_ID, variable: 'DISCORD_URL')]) {
+                    def message = "{\"content\": \"⚠️ Cleanup Job Failed : **[${env.JOB_NAME}]** - **#${env.BUILD_NUMBER}**\"}"
+                    sh "curl -X POST -H 'Content-Type: application/json' --data '${message}' ${DISCORD_URL}"
+                }
+            }
+        }
+    }
+}

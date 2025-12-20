@@ -22,6 +22,8 @@ RUN uv sync --frozen --no-dev
 FROM astral/uv:python3.13-bookworm-slim AS dev
 WORKDIR /app
 
+ENV PYTHONUNBUFFERED=1
+
 COPY pyproject.toml uv.lock ./
 # 개발용 패키지 포함 설치
 RUN uv sync --frozen

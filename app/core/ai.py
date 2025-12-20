@@ -73,19 +73,45 @@ async def generate_response(prompt: str, context: str = ''):
 
     if not context:
         full_user_content = f"""
-        # [User Prompt]
+
+        You are an intelligent assistant named "Protostar".
+        Answer the user's question based ONLY on the provided context below.
+        
+        <instruction>
+        Answer the following question based on the context above.
+        If the answer is not in the context, strictly say "I don't know based on the provided documents."
+        Do not halluciation or generate external information.
+        </instruction>
+
+        <question>
         {prompt}
-        # [User Career Context]
+        </question>
+
+        <context>
         {GLOBAL_KNOWLEDGE_BASE}
+        </context>
         """
     else: 
         full_user_content = f"""
-        # [User Prompt]
+
+        You are an intelligent assistant named "Protostar".
+        Answer the user's question based ONLY on the provided context below.
+        
+        <instruction>
+        Answer the following question based on the context above.
+        If the answer is not in the context, strictly say "I don't know based on the provided documents."
+        Do not halluciation or generate external information.
+        </instruction>
+
+        <question>
         {prompt}
-        # [User Career Context]
-        {GLOBAL_KNOWLEDGE_BASE}
-        # [User Context]
+        </question>
+
+        <context>
         {context}
+
+        {GLOBAL_KNOWLEDGE_BASE}
+        </context>
         """
 
     try:
@@ -96,6 +122,7 @@ async def generate_response(prompt: str, context: str = ''):
                 {"role": "system", "content": GLOBAL_SYSTEM_PROMPT},
                 {"role": "user", "content": full_user_content}
             ],
+            temperature=0.3,
         )
         
         # 3. 텍스트 추출

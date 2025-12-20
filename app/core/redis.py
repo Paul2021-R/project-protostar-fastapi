@@ -1,4 +1,5 @@
 import redis.asyncio as redis
+import sys
 from core.config import settings
 
 pool = redis.ConnectionPool.from_url(
@@ -16,5 +17,7 @@ async def init_test_redis():
         print("✅ Redis Connected Successfully!")
     except Exception as e:
         print(f"❌ Redis Connection Failed: {e}")
+        await redis.close()
+        sys.exit(1)
     finally:
         await redis.close()

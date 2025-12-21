@@ -139,7 +139,7 @@ pipeline {
                                     commands << "git pull origin main || git clone https://github.com/Paul2021-R/project-protostar-fastapi.git ."
 
                                     commands << "echo '--- [4/5] Update Environment Variables ---'"
-                                    commands << "echo '${PROD_FASTAPI_ENV}' > .env"
+                                    commands << "echo \"${PROD_FASTAPI_ENV}\" > .env"
                                     
                                     // Loop through services
                                     deployServices.each { service ->

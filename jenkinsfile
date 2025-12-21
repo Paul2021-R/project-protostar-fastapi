@@ -156,7 +156,7 @@ pipeline {
                                     }
 
                                     deployServices.each { service ->
-                                        commands << "docker compose --env-file init.env .env up -d --no-deps --force-recreate ${service}"
+                                        commands << "docker compose --env-file .env up -d --no-deps --force-recreate ${service}"
                                     }
                                     
                                     commands << "echo '--- Cleanup ---'"

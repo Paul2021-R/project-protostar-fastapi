@@ -28,10 +28,10 @@ def health_check():
     return {"status": "ok"}
 
 @app.get("/test-ai")
-async def test_ai(prompot:str = "자기소개 부탁해", context:str = ""):
+async def test_ai(prompt:str = "자기소개 부탁해", context:str = ""):
     """
     Query Parameter로 prompt를 받아서 AI 답변을 반환
     예: /test-ai?prompt=Docker가 뭐야?
     """
-    answer = await generate_response(prompot, context)
+    answer = await generate_response(prompt, context)
     return {"answer": answer}

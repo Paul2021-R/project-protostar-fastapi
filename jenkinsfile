@@ -113,7 +113,10 @@ pipeline {
                         def newTag = "${env.BUILD_NUMBER}"
                         def earlyTag = "${Math.max(1, env.BUILD_NUMBER.toInteger() - 1)}"
 
-                        withCredentials([usernamePassword(credentialsId: GHCR_CREDS_ID, usernameVariable: 'GHCR_USER', passwordVariable: 'GHCR_TOKEN')]) {
+                        withCredentials([
+                            usernamePassword(credentialsId: GHCR_CREDS_ID, usernameVariable: 'GHCR_USER', passwordVariable: 'GHCR_TOKEN'),
+                            string(credentialsId: 'prod-fastapi-env', variable: 'PROD_FASTAPI_ENV')
+                            ]) {
                             sshagent(credentials: [TARGET_SSH_CREDS_ID]) {
                                 // 2. Deployment Script Construction
                                 def commands = []
@@ -134,6 +137,9 @@ pipeline {
                                     commands << "cd ${TARGET_PROJECT_PATH}"
                                     
                                     commands << "git pull origin main || git clone https://github.com/Paul2021-R/project-protostar-fastapi.git ."
+
+                                    commands << "echo '--- [4/5] Update Environment Variables ---'"
+                                    commands << "echo '${PROD_FASTAPI_ENV}' > .env"
                                     
                                     // Loop through services
                                     deployServices.each { service ->
@@ -150,7 +156,7 @@ pipeline {
                                     }
 
                                     deployServices.each { service ->
-                                        commands << "docker compose --env-file init.env up -d --no-deps --force-recreate ${service}"
+                                        commands << "docker compose --env-file init.env .env up -d --no-deps --force-recreate ${service}"
                                     }
                                     
                                     commands << "echo '--- Cleanup ---'"

@@ -1,3 +1,4 @@
+name: project-protostar-backend
 services:
   # [개발 환경]
   dev:

@@ -81,35 +81,18 @@ def retrieve_relevant_chunks(query: str, top_k: int = 3) -> str:
 async def generate_response_stream(prompt: str, mode:str = 'general', context: str = ''):
     # 1. Retrieval (검색): 질문과 관련된 자료만 가져오기
     # 사용자가 직접 넘겨준 context가 있으면 그걸 우선, 없으면 DB에서 검색
-    # found_context = context if context else retrieve_relevant_chunks(prompt)
+    found_context = context
+    if not found_context:
+         # generator를 문자열로 변환
+         retrieved = retrieve_relevant_chunks(prompt)
+         found_context = "".join(list(retrieved))
 
-    # # 2. Generation (생성): 찾은 자료가 없으면 바로 모른다고 하기
-    # if not found_context:
-    #     return "죄송합니다. 학습된 문서 내에서 해당 질문에 대한 정보를 찾을 수 없습니다."
-
-    # 3. 프롬프트 조립 (자료가 있으니 답변 생성)
-    # full_prompt = dedent(f"""
-    # <relevant_documents>
-    # {found_context}
-    # </relevant_documents>
-
-    # <instruction>
-    # You are 'Protostar', a strict AI assistant.
-    # Answer the user's question using **ONLY** the information in <relevant_documents>.
+    # 2. Generation (생성): 찾은 자료가 없으면 답변이 어려울 수 있음 (빈 맥락 허용 여부는 정책 결정)
     
-    # Rules:
-    # 1. If the exact answer is not in the documents, say "문서에 내용이 없습니다."
-    # 2. Do NOT summarize the whole document, just answer the specific question.
-    # 3. Answer in Korean.
-    # </instruction>
-
-    # <user_question>
-    # {prompt}
-    # </user_question>
-    # """).strip()
+    # 3. 프롬프트 조립 (자료가 있으니 답변 생성)
     full_prompt = dedent(f"""
     <relevant_documents>
-
+    {found_context}
     </relevant_documents>
 
     <instruction>

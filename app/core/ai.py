@@ -78,7 +78,7 @@ def retrieve_relevant_chunks(query: str, top_k: int = 3) -> str:
     yield "\n\n---\n\n".join(top_results)
 
 
-async def generate_response_stream(prompt: str, context: str = ''):
+async def generate_response_stream(prompt: str, mode:str = 'general', context: str = ''):
     # 1. Retrieval (검색): 질문과 관련된 자료만 가져오기
     # 사용자가 직접 넘겨준 context가 있으면 그걸 우선, 없으면 DB에서 검색
     # found_context = context if context else retrieve_relevant_chunks(prompt)

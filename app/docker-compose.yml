@@ -1,7 +1,7 @@
 name: project-protostar-backend
 services:
   # [개발 환경]
-  dev:
+  fastapi-dev:
     container_name: protostar-fastapi-dev
     build:
       context: .
@@ -17,7 +17,7 @@ services:
     restart: unless-stopped
 
   # [운영 환경 시뮬레이션]
-  prod:
+  fastapi-prod:
     container_name: protostar-fastapi-prod
     build:
       context: .

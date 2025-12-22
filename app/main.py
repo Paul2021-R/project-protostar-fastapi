@@ -2,8 +2,12 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from core.redis import init_test_redis  
 from core.database import init_db
-from core.ai import generate_response
+from core.ai import generate_response_stream
 from core.ai import init_ai_context
+from core.worker import run_worker
+import asyncio
+from fastapi.responses import StreamingResponse
+
 
 @asynccontextmanager
 async def main_lifespan(app: FastAPI): # context manager 패턴
@@ -13,9 +17,16 @@ async def main_lifespan(app: FastAPI): # context manager 패턴
     await init_db()
     
     await init_ai_context()
+
+    worker_task = asyncio.create_task(run_worker())
     
     yield # 기준점
     # 영역 2 - on module destroy 
+    worker_task.cancel()
+    try:
+        await worker_task
+    except asyncio.CancelledError:
+        pass
 
 app = FastAPI(lifespan=main_lifespan)
 
@@ -33,5 +44,8 @@ async def test_ai(prompt:str = "자기소개 부탁해", context:str = ""):
     Query Parameter로 prompt를 받아서 AI 답변을 반환
     예: /test-ai?prompt=Docker가 뭐야?
     """
-    answer = await generate_response(prompt, context)
-    return {"answer": answer}
+
+    return StreamingResponse(
+        generate_response_stream(prompt, context),
+        media_type="text/plain"
+    )

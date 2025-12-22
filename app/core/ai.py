@@ -57,7 +57,7 @@ def retrieve_relevant_chunks(query: str, top_k: int = 3) -> str:
     [Retrieval] 질문과 관련된 문단만 찾아내는 검색 엔진
     """
     if not KNOWLEDGE_CHUNKS:
-        return ""
+        yield ""
 
     query_tokens = set(query.split()) # 질문을 단어로 쪼갬
     scores = []
@@ -73,12 +73,12 @@ def retrieve_relevant_chunks(query: str, top_k: int = 3) -> str:
     top_results = [item[1] for item in scores[:top_k]]
     
     if not top_results:
-        return "" # 관련 내용이 하나도 없으면 빈 문자열 반환
+        yield "" # 관련 내용이 하나도 없으면 빈 문자열 반환
 
-    return "\n\n---\n\n".join(top_results)
+    yield "\n\n---\n\n".join(top_results)
 
 
-async def generate_response(prompt: str, context: str = ''):
+async def generate_response_stream(prompt: str, mode:str = 'general', context: str = ''):
     # 1. Retrieval (검색): 질문과 관련된 자료만 가져오기
     # 사용자가 직접 넘겨준 context가 있으면 그걸 우선, 없으면 DB에서 검색
     # found_context = context if context else retrieve_relevant_chunks(prompt)
@@ -119,8 +119,8 @@ async def generate_response(prompt: str, context: str = ''):
     1. Answer in Korean.
     2. 당신은 현재 블로그 상의 챗봇 서비스이며 Protostar 라는 이름을 갖고 있는 지원 AI 입니다. 
     3. 당신의 역할은 다음과 같습니다.
-        - 당신에게 사전 자료가 존재한다면 해당 자료를 기반으로 하여 이용자들의 이력서, 경력, 능력치를 질문자에게 어필하거나 소개합니다. 
-        - 당신에게 블로그 상에서 제공되는 자료에 대해 답변을 요청할 경우 이에 맞춰 답변을 해주어야 합니다. 핵심 파악, 요약 등의 답변을 해주어야 합니다. 
+        - 당신에게 사전 자료가 존재한다면 해당 자료를 기반으로 하여 이용자들의 이력서, 경력, 능력치를 질문자에게 어필하거나 소개합니다. (단 현재는 개발중이므로 이력서나 경력, 능력치에 대한 어필은 불가능하니 질문자가 물어볼 시 양해를 구해야 합니다.)
+        - 당신에게 블로그 상에서 제공되는 자료에 대해 답변을 요청할 경우 이에 맞춰 답변을 해주어야 합니다. 핵심 파악, 요약 등의 답변을 해주면 됩니다.
         - 블로그나 개인의 이력과 관련되지 않은 일반적인 질문에는 '권한 없음' 이란 이유 하에 답변을 하지 말아야 합니다. 
     4. 챗봇의 환경에서 제공되므로 텍스트 답변만 해주어야 하며 강조 표현을 비롯한 다양한 텍스트 변화는 필요하지 않습니다. 
     5. 모든 답변에서 핵심은, 질문자의 요지에 대한 결론을 우선 제시하며 근거나 내용은 하위에 기재합니다. 
@@ -134,18 +134,20 @@ async def generate_response(prompt: str, context: str = ''):
 
 
     try:
-        response = await client.chat.completions.create(
+        stream = await client.chat.completions.create(
             model=settings.OPENROUTER_MODEL,
             messages=[
                 {"role": "system", "content": "당신은 Protostar AI 에이전트 비서로서 서비스를 블로그에 탑재되어 있어서, 이용자의 이력 어필 블로그 글을 첨부 시 질문자의 요청에 맞춰 답변하기를 해주는 비서입니다."},
                 {"role": "user", "content": full_prompt}
             ],
-            temperature=0.7, # 사실 기반 답변
+            stream=True, # 스트리밍 활성화
+            temperature=0.7, # 사실 기반 답변은 0.0에 둬야 하나 지금은 일단 이렇게 둘 것. 
         )
-
-        print(response.choices)
-
-        return response.choices[0].message.content
-        
+        # 한번에 벌크로 받기 
+        # return response.choices[0].message.content
+        # 응답 조각대로 배출 
+        async for chunk in stream:
+            if chunk.choices[0].delta.content is not None:
+                yield chunk.choices[0].delta.content
     except Exception as e:
-        return f"❌ AI Error: {str(e)}"
+        yield (f"❌ AI Error: {str(e)}")

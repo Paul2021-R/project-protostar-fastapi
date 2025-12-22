@@ -6,6 +6,8 @@ from core.ai import generate_response_stream
 from core.ai import init_ai_context
 from core.worker import run_worker
 import asyncio
+from fastapi.responses import StreamingResponse
+
 
 @asynccontextmanager
 async def main_lifespan(app: FastAPI): # context manager 패턴
@@ -42,5 +44,8 @@ async def test_ai(prompt:str = "자기소개 부탁해", context:str = ""):
     Query Parameter로 prompt를 받아서 AI 답변을 반환
     예: /test-ai?prompt=Docker가 뭐야?
     """
-    answer = await generate_response_stream(prompt, context)
-    return {"answer": answer}
+
+    return StreamingResponse(
+        generate_response_stream(prompt, context),
+        media_type="text/plain"
+    )

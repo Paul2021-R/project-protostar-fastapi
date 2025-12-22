@@ -57,7 +57,7 @@ def retrieve_relevant_chunks(query: str, top_k: int = 3) -> str:
     [Retrieval] 질문과 관련된 문단만 찾아내는 검색 엔진
     """
     if not KNOWLEDGE_CHUNKS:
-        return ""
+        yield ""
 
     query_tokens = set(query.split()) # 질문을 단어로 쪼갬
     scores = []
@@ -73,9 +73,9 @@ def retrieve_relevant_chunks(query: str, top_k: int = 3) -> str:
     top_results = [item[1] for item in scores[:top_k]]
     
     if not top_results:
-        return "" # 관련 내용이 하나도 없으면 빈 문자열 반환
+        yield "" # 관련 내용이 하나도 없으면 빈 문자열 반환
 
-    return "\n\n---\n\n".join(top_results)
+    yield "\n\n---\n\n".join(top_results)
 
 
 async def generate_response_stream(prompt: str, context: str = ''):
@@ -134,22 +134,20 @@ async def generate_response_stream(prompt: str, context: str = ''):
 
 
     try:
-        response = await client.chat.completions.create(
+        stream = await client.chat.completions.create(
             model=settings.OPENROUTER_MODEL,
             messages=[
                 {"role": "system", "content": "당신은 Protostar AI 에이전트 비서로서 서비스를 블로그에 탑재되어 있어서, 이용자의 이력 어필 블로그 글을 첨부 시 질문자의 요청에 맞춰 답변하기를 해주는 비서입니다."},
                 {"role": "user", "content": full_prompt}
             ],
-            stream=Trus, # 스트리밍 활성화
+            stream=True, # 스트리밍 활성화
             temperature=0.7, # 사실 기반 답변은 0.0에 둬야 하나 지금은 일단 이렇게 둘 것. 
         )
-
         # 한번에 벌크로 받기 
         # return response.choices[0].message.content
         # 응답 조각대로 배출 
         async for chunk in stream:
             if chunk.choices[0].delta.content is not None:
                 yield chunk.choices[0].delta.content
-        
     except Exception as e:
-        return f"❌ AI Error: {str(e)}"
+        yield (f"❌ AI Error: {str(e)}")

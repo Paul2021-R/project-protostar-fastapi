@@ -1,8 +1,9 @@
 import asyncio
 import json
 import logging
+from datetime import datetime
 from core.redis import get_redis_client
-from core.ai import generate_response
+from core.ai import generate_response_stream
 
 logger = logging.getLogger("uvicorn")
 
@@ -29,7 +30,7 @@ async def process_chat_job(job_id: str, redis_client):
         task_data = json.loads(task_data_json)
 
         mode = task_data.get("mode")
-        session_id = task_data.get("session_id")
+        session_id = task_data.get("sessionId")
         user_uuid = task_data.get("uuid")
         prompt = task_data.get("content")
         context = task_data.get("context", "")
@@ -39,7 +40,7 @@ async def process_chat_job(job_id: str, redis_client):
         channel = f"chat:stream:{user_uuid}-{session_id}"
 
 # AI가 한 글자(토큰)를 줄 때마다 Redis로 즉시 발송
-        async for token in generate_response_stream(prompt, context):
+        async for token in generate_response_stream(prompt, mode, context):
             message_payload = {
                 "type": "message",
                 "content": token, # 전체 문장이 아닌 '조각'
@@ -47,6 +48,7 @@ async def process_chat_job(job_id: str, redis_client):
                 "sessionId": session_id,
                 "timestamp": task_data.get("timestamp")
             }
+            print(token)
             # NestJS로 조각 발송
             await redis_client.publish(channel, json.dumps(message_payload))
 

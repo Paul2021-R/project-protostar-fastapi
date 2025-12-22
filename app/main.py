@@ -2,7 +2,10 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from core.redis import init_test_redis  
 from core.database import init_db
-from core.ai import *
+from core.ai import generate_response_stream
+from core.ai import init_ai_context
+from core.worker import run_worker
+import asyncio
 
 @asynccontextmanager
 async def main_lifespan(app: FastAPI): # context manager 패턴

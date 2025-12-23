@@ -27,6 +27,10 @@ pipeline {
         
         // 4. Nginx Upstream 파일명 (Main Server에 만들어둬야 함)
         UPSTREAM_FILE_NAME = 'nginx_upstream_fastapi.conf'
+
+        // 5. Image TAG
+        FASTAPI_BLUE_IMAGE = 'ghcr.io/paul2021-r/project-protostar-fastapi'
+        FASTAPI_GREEN_IMAGE = 'ghcr.io/paul2021-r/project-protostar-fastapi'
         // ==============================================================================
     }
 
@@ -155,6 +159,8 @@ pipeline {
                                     // [MOVED] .env creation is handled via scp before this script runs
                                     commands << "echo '--- [4/5] Update Environment Variables ---'"
                                     // commands << "echo \"${PROD_FASTAPI_ENV}\" > .env" // Removed unsafe echo
+                                    commands << "export FASTAPI_BLUE_IMAGE=${FASTAPI_BLUE_IMAGE}"
+                                    commands << "export FASTAPI_GREEN_IMAGE=${FASTAPI_GREEN_IMAGE}"
                                     
                                     // Loop through services
                                     deployServices.each { service ->

@@ -5,6 +5,7 @@ from core.config import settings
 pool = redis.ConnectionPool.from_url(
     settings.REDIS_URL,
     decode_responses=True,
+    max_connections=1000,
 )
 
 def get_redis_client() -> redis.Redis:

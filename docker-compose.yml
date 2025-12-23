@@ -4,6 +4,7 @@ services:
     image: ${FASTAPI_BLUE_IMAGE}:${TAG_BLUE}
     networks:
       - main-protostar
+    env_file: .env
     environment:
       - APP_ENV=production
     restart: unless-stopped
@@ -13,6 +14,7 @@ services:
     image: ${FASTAPI_GREEN_IMAGE}:${TAG_GREEN}
     networks:
       - main-protostar
+    env_file: .env
     environment:
       - APP_ENV=production
     restart: unless-stopped

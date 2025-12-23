@@ -118,6 +118,18 @@ pipeline {
                             string(credentialsId: 'prod-fastapi-env', variable: 'PROD_FASTAPI_ENV')
                             ]) {
                             sshagent(credentials: [TARGET_SSH_CREDS_ID]) {
+                                // [NEW] 1. Create local temp .env and SCP to server (Safe Transfer)
+                                writeFile file: '.env.tmp', text: PROD_FASTAPI_ENV
+                                
+                                // Ensure remote directory exists
+                                sh "ssh -o StrictHostKeyChecking=no -p ${TARGET_PORT} ${TARGET_HOST} 'mkdir -p ${TARGET_PROJECT_PATH}'"
+                                
+                                // SCP the file
+                                sh "scp -o StrictHostKeyChecking=no -P ${TARGET_PORT} .env.tmp ${TARGET_HOST}:${TARGET_PROJECT_PATH}/.env"
+                                
+                                // Cleanup local file
+                                sh "rm .env.tmp"
+
                                 // 2. Deployment Script Construction
                                 def commands = []
 
@@ -138,8 +150,11 @@ pipeline {
                                     
                                     commands << "git pull origin main || git clone https://github.com/Paul2021-R/project-protostar-fastapi.git ."
 
+                                    commands << "git pull origin main || git clone https://github.com/Paul2021-R/project-protostar-fastapi.git ."
+                                    
+                                    // [MOVED] .env creation is handled via scp before this script runs
                                     commands << "echo '--- [4/5] Update Environment Variables ---'"
-                                    commands << "echo \"${PROD_FASTAPI_ENV}\" > .env"
+                                    // commands << "echo \"${PROD_FASTAPI_ENV}\" > .env" // Removed unsafe echo
                                     
                                     // Loop through services
                                     deployServices.each { service ->

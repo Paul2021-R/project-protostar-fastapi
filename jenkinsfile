@@ -119,20 +119,18 @@ pipeline {
 
                         withCredentials([
                             usernamePassword(credentialsId: GHCR_CREDS_ID, usernameVariable: 'GHCR_USER', passwordVariable: 'GHCR_TOKEN'),
-                            string(credentialsId: 'prod-fastapi-env', variable: 'PROD_FASTAPI_ENV')
+                            file(credentialsId: 'prod-fastapi-env-file', variable: 'PROD_ENV_FILE')
                             ]) {
                             sshagent(credentials: [TARGET_SSH_CREDS_ID]) {
-                                // [NEW] 1. Create local temp .env and SCP to server (Safe Transfer)
-                                writeFile file: '.env.tmp', text: PROD_FASTAPI_ENV
+                                // [NEW] 1. SCP the Secret File to server (Safe Transfer)
                                 
                                 // Ensure remote directory exists
                                 sh "ssh -o StrictHostKeyChecking=no -p ${TARGET_PORT} ${TARGET_HOST} 'mkdir -p ${TARGET_PROJECT_PATH}'"
                                 
-                                // SCP the file
-                                sh "scp -o StrictHostKeyChecking=no -P ${TARGET_PORT} .env.tmp ${TARGET_HOST}:${TARGET_PROJECT_PATH}/.env"
+                                // SCP the file provided by Jenkins (PROD_ENV_FILE is the temp path)
+                                sh "scp -o StrictHostKeyChecking=no -P ${TARGET_PORT} ${PROD_ENV_FILE} ${TARGET_HOST}:${TARGET_PROJECT_PATH}/.env"
                                 
-                                // Cleanup local file
-                                sh "rm .env.tmp"
+                                // No need to cleanup local file manually, Jenkins handles it.
 
                                 // 2. Deployment Script Construction
                                 def commands = []

@@ -7,6 +7,9 @@ from core.ai import generate_response_stream
 
 logger = logging.getLogger("uvicorn")
 
+TARGET_TPS = 100
+TEST_DELAY = 1 / TARGET_TPS
+
 async def process_chat_job(job_id: str, redis_client): 
     """
     단일 채팅 작업을 처리하는 함수 
@@ -39,7 +42,29 @@ async def process_chat_job(job_id: str, redis_client):
 
         channel = f"chat:stream:{user_uuid}-{session_id}"
 
-# AI가 한 글자(토큰)를 줄 때마다 Redis로 즉시 발송
+        # 테스트 모드
+        if mode not in ['general', 'page_context']:
+            await redis_client.publish(channel, json.dumps({
+                "type": "message",
+                "content": "T",
+                "uuid": user_uuid,
+                "sessionId": session_id,
+                "timestamp": task_data.get("timestamp")
+            }))
+
+            await asyncio.sleep(TEST_DELAY) 
+
+            await redis_client.publish(channel, json.dumps({
+                "type": "done",
+                "content": None,
+                "uuid": user_uuid,
+                "sessionId": session_id,
+                "timestamp": task_data.get("timestamp")
+            }))
+
+            return
+
+        # AI가 한 글자(토큰)를 줄 때마다 Redis로 즉시 발송
         async for token in generate_response_stream(prompt, mode, context):
             message_payload = {
                 "type": "message",
@@ -83,7 +108,7 @@ async def run_worker():
                 _, job_id = result 
                 await process_chat_job(job_id, redis_client)
 
-            await asyncio.sleep(0.01)
+            await asyncio.sleep(0.001)
     
     except asyncio.CancelledError:
         logger.info("🛑 Worker loop cancelled.")

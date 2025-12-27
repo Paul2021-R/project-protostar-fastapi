@@ -45,7 +45,7 @@ async def process_chat_job(job_id: str, redis_client):
         # 테스트 모드
         if mode not in ['general', 'page_context']:
             test_message_payload = {
-                "type": "message",
+                "type": 'message',
                 "content": "T",
                 "uuid": user_uuid,
                 "sessionId": session_id,
@@ -56,8 +56,8 @@ async def process_chat_job(job_id: str, redis_client):
             await asyncio.sleep(TEST_DELAY) 
 
             done_payload = {
-                "type": "done",
-                "content": None,
+                "type": 'done',
+                "content": 'done',
                 "uuid": user_uuid,
                 "sessionId": session_id,
                 "timestamp": task_data.get("timestamp")
@@ -67,22 +67,22 @@ async def process_chat_job(job_id: str, redis_client):
 
             return
 
-        # AI가 한 글자(토큰)를 줄 때마다 Redis로 즉시 발송
+        # AI가 한 토큰(조각)를 줄 때마다 Redis로 즉시 발송
         async for token in generate_response_stream(prompt, mode, context):
             message_payload = {
-                "type": "message",
+                "type": 'message',
                 "content": token, # 전체 문장이 아닌 '조각'
                 "uuid": user_uuid,
                 "sessionId": session_id,
                 "timestamp": task_data.get("timestamp")
             }
-            print(token)
+            # print(token)
             # NestJS로 조각 발송
             await redis_client.publish(channel, json.dumps(message_payload))
 
         done_payload = {
-            "type": "done",            # 완료 타입 (NestJS나 클라이언트에서 식별 가능)
-            "content": None,           # 내용은 없음
+            "type": 'done',            # 완료 타입 (NestJS나 클라이언트에서 식별 가능)
+            "content": 'done',           # 내용은 없음
             "uuid": user_uuid,
             "sessionId": session_id,
             "timestamp": datetime.now().isoformat()

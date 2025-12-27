@@ -44,23 +44,26 @@ async def process_chat_job(job_id: str, redis_client):
 
         # 테스트 모드
         if mode not in ['general', 'page_context']:
-            await redis_client.publish(channel, json.dumps({
+            test_message_payload = {
                 "type": "message",
                 "content": "T",
                 "uuid": user_uuid,
                 "sessionId": session_id,
                 "timestamp": task_data.get("timestamp")
-            }))
+            }
+            await redis_client.publish(channel, json.dumps(test_message_payload))
 
             await asyncio.sleep(TEST_DELAY) 
 
-            await redis_client.publish(channel, json.dumps({
+            done_payload = {
                 "type": "done",
                 "content": None,
                 "uuid": user_uuid,
                 "sessionId": session_id,
                 "timestamp": task_data.get("timestamp")
-            }))
+            }
+            
+            await redis_client.publish(channel, json.dumps(done_payload))
 
             return
 

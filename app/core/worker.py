@@ -73,7 +73,7 @@ async def process_chat_job(job_id: str, redis_client):
                 "sessionId": session_id,
                 "timestamp": task_data.get("timestamp")
             }
-            print(token)
+            # print(token)
             # NestJS로 조각 발송
             await redis_client.publish(channel, json.dumps(message_payload))
 

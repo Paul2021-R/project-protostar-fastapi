@@ -7,7 +7,11 @@ from core.ai import init_ai_context
 from core.worker import run_worker
 import asyncio
 from fastapi.responses import StreamingResponse
+from core.silence_health_checker import report_health_status_to_redis
+import uuid
+from core.redis import get_redis_client
 
+INSTANCE_ID = f"fastapi:{str(uuid.uuid4())[:8]}"
 
 @asynccontextmanager
 async def main_lifespan(app: FastAPI): # context manager 패턴
@@ -19,12 +23,28 @@ async def main_lifespan(app: FastAPI): # context manager 패턴
     await init_ai_context()
 
     worker_task = asyncio.create_task(run_worker())
+    health_task = asyncio.create_task(report_health_status_to_redis(INSTANCE_ID))
+    
+    print(f"🚀 FastAPI Instance {INSTANCE_ID} Started & Reporting Health...")
     
     yield # 기준점
     # 영역 2 - on module destroy 
     worker_task.cancel()
+    health_task.cancel()
+
+    # Graceful Shutdown - 종료 시 출석부에서 즉시 제거
+
+    try:
+        redis_client = get_redis_client()
+        await redis_client.zrem("cluster:heartbeats", INSTANCE_ID)
+    except Exception as e:
+        pass
+    finally:
+        await redis_client.close()
+
     try:
         await worker_task
+        await health_task
     except asyncio.CancelledError:
         pass
 

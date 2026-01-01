@@ -15,6 +15,8 @@ services:
     environment:
       - APP_ENV=development
     restart: unless-stopped
+    networks:
+      - main-protostar
 
   # [운영 환경 시뮬레이션]
   fastapi-prod:
@@ -27,6 +29,8 @@ services:
     environment:
       - APP_ENV=production
     restart: unless-stopped
+    networks:
+      - main-protostar
 
 networks:
   main-protostar:

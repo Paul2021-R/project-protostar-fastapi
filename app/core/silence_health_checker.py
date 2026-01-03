@@ -47,14 +47,16 @@ async def report_health_status_to_redis(instance_id: str):
 
                 logger.warning(json.dumps(log_payload))
                 
-
-        except Exception as e:
+        # exception 이유 
+        # heart beat  무한 루프를 돌며 생존 신고를 해야하고, 
+        # 따라서 대응할 수 있는 명료한 에러 핸들링이 아닌, 범용적이고, 그냥 핸들링만 간단히 하고 넘어가는게 더 중요.
+        except Exception as e: 
             error_payload = {
                 "level": "error",
                 "event": "heartbeat_error",
                 "instance": instance_id,
                 "error": str(e),
             }
-            logger.error(json.dumps(error_payload))
+            logger.exception(json.dumps(error_payload))
 
         await asyncio.sleep(3)

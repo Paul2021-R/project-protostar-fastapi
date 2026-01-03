@@ -10,8 +10,10 @@ from fastapi.responses import StreamingResponse
 from core.silence_health_checker import report_health_status_to_redis
 import uuid
 from core.redis import get_redis_client
+import logging
 
 INSTANCE_ID = f"fastapi:{str(uuid.uuid4())[:8]}"
+logger = logging.getLogger('uvicorn.error')
 
 @asynccontextmanager
 async def main_lifespan(app: FastAPI): # context manager 패턴
@@ -33,14 +35,17 @@ async def main_lifespan(app: FastAPI): # context manager 패턴
     health_task.cancel()
 
     # Graceful Shutdown - 종료 시 출석부에서 즉시 제거
+    # 스코프 문제를 위하여 redis_client를 None으로 초기화
+    redis_client = None
 
     try:
         redis_client = get_redis_client()
         await redis_client.zrem("cluster:heartbeats", INSTANCE_ID)
-    except Exception as e:
-        pass
+    except Exception as e: # error handling 패스 안하기
+        logger.error(f"Failed to remove instance from Redis during shutdown: {e}")
     finally:
-        await redis_client.close()
+        if redis_client: # 클라이언트 존재 할 때만 닫기
+            await redis_client.close()
 
     try:
         await worker_task

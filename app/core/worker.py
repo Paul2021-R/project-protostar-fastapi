@@ -109,7 +109,7 @@ async def run_worker():
 
             if result:
                 _, job_id = result 
-                await process_chat_job(job_id, redis_client)
+                process_chat_job(job_id, redis_client)
 
             await asyncio.sleep(0.001)
     

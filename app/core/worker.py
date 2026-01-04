@@ -8,7 +8,7 @@ from core.ai import generate_response_stream
 logger = logging.getLogger("uvicorn")
 
 TARGET_TPS = 100
-TEST_DELAY = 3 / TARGET_TPS
+TEST_DELAY = 1 / TARGET_TPS
 
 async def process_chat_job(job_id: str, redis_client): 
     """

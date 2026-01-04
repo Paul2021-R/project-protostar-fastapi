@@ -49,7 +49,7 @@ async def process_chat_job(job_id: str, redis_client):
                 "content": "T",
                 "uuid": user_uuid,
                 "sessionId": session_id,
-                "timestamp": task_data.get("timestamp")
+                "timestamp": datetime.now().isoformat()
             }
             await redis_client.publish(channel, json.dumps(test_message_payload))
 
@@ -60,11 +60,12 @@ async def process_chat_job(job_id: str, redis_client):
                 "content": 'done',
                 "uuid": user_uuid,
                 "sessionId": session_id,
-                "timestamp": task_data.get("timestamp")
+                "timestamp": datetime.now().isoformat()
             }
             
             await redis_client.publish(channel, json.dumps(done_payload))
-
+            await redis_client.delete(task_key)
+            logger.info(f"🗑️ [Test] Deleted task data for job: {job_id}")
             return
 
         # AI가 한 토큰(조각)를 줄 때마다 Redis로 즉시 발송
@@ -109,7 +110,7 @@ async def run_worker():
 
             if result:
                 _, job_id = result 
-                process_chat_job(job_id, redis_client)
+                asyncio.create_task(process_chat_job(job_id, redis_client))
 
             await asyncio.sleep(0.001)
     

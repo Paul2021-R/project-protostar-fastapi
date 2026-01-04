@@ -10,6 +10,9 @@ logger = logging.getLogger("uvicorn")
 TARGET_TPS = 100
 TEST_DELAY = 1 / TARGET_TPS
 
+MAX_CONCURRENT_JOBS = 100
+semaphore = asyncio.Semaphore(MAX_CONCURRENT_JOBS)
+
 async def process_chat_job(job_id: str, redis_client): 
     """
     단일 채팅 작업을 처리하는 함수 
@@ -49,7 +52,7 @@ async def process_chat_job(job_id: str, redis_client):
                 "content": "T",
                 "uuid": user_uuid,
                 "sessionId": session_id,
-                "timestamp": datetime.now().isoformat()
+                "timestamp": task_data.get("timestamp")
             }
             await redis_client.publish(channel, json.dumps(test_message_payload))
 
@@ -60,7 +63,7 @@ async def process_chat_job(job_id: str, redis_client):
                 "content": 'done',
                 "uuid": user_uuid,
                 "sessionId": session_id,
-                "timestamp": datetime.now().isoformat()
+                "timestamp": task_data.get("timestamp")
             }
             
             await redis_client.publish(channel, json.dumps(done_payload))

@@ -10,6 +10,9 @@ logger = logging.getLogger("uvicorn")
 TARGET_TPS = 100
 TEST_DELAY = 1 / TARGET_TPS
 
+MAX_CONCURRENT_JOBS = 100
+semaphore = asyncio.Semaphore(MAX_CONCURRENT_JOBS)
+
 async def process_chat_job(job_id: str, redis_client): 
     """
     단일 채팅 작업을 처리하는 함수 
@@ -44,30 +47,34 @@ async def process_chat_job(job_id: str, redis_client):
 
         # 테스트 모드
         if mode not in ['general', 'page_context']:
-            await redis_client.publish(channel, json.dumps({
-                "type": "message",
+            test_message_payload = {
+                "type": 'message',
                 "content": "T",
                 "uuid": user_uuid,
                 "sessionId": session_id,
                 "timestamp": task_data.get("timestamp")
-            }))
+            }
+            await redis_client.publish(channel, json.dumps(test_message_payload))
 
             await asyncio.sleep(TEST_DELAY) 
 
-            await redis_client.publish(channel, json.dumps({
-                "type": "done",
-                "content": None,
+            done_payload = {
+                "type": 'done',
+                "content": 'done',
                 "uuid": user_uuid,
                 "sessionId": session_id,
                 "timestamp": task_data.get("timestamp")
-            }))
-
+            }
+            
+            await redis_client.publish(channel, json.dumps(done_payload))
+            await redis_client.delete(task_key)
+            logger.info(f"🗑️ [Test] Deleted task data for job: {job_id}")
             return
 
-        # AI가 한 글자(토큰)를 줄 때마다 Redis로 즉시 발송
+        # AI가 한 토큰(조각)를 줄 때마다 Redis로 즉시 발송
         async for token in generate_response_stream(prompt, mode, context):
             message_payload = {
-                "type": "message",
+                "type": 'message',
                 "content": token, # 전체 문장이 아닌 '조각'
                 "uuid": user_uuid,
                 "sessionId": session_id,
@@ -78,8 +85,8 @@ async def process_chat_job(job_id: str, redis_client):
             await redis_client.publish(channel, json.dumps(message_payload))
 
         done_payload = {
-            "type": "done",            # 완료 타입 (NestJS나 클라이언트에서 식별 가능)
-            "content": None,           # 내용은 없음
+            "type": 'done',            # 완료 타입 (NestJS나 클라이언트에서 식별 가능)
+            "content": 'done',           # 내용은 없음
             "uuid": user_uuid,
             "sessionId": session_id,
             "timestamp": datetime.now().isoformat()
@@ -106,7 +113,7 @@ async def run_worker():
 
             if result:
                 _, job_id = result 
-                await process_chat_job(job_id, redis_client)
+                asyncio.create_task(process_chat_job(job_id, redis_client))
 
             await asyncio.sleep(0.001)
     

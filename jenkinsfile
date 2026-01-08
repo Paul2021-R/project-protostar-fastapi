@@ -190,7 +190,7 @@ pipeline {
                                         def targetService = deployServices[0]
                                         commands << "cd ${TARGET_INFRA_PATH}"
                                         // sed로 upstream 파일 수정 (Main Server 파일과 일치해야 함)
-                                        commands << "sed -i 's|server .*|server main-${targetService}:8000;|' ./nginx/${UPSTREAM_FILE_NAME}"
+                                        commands << "sed -i 's|server .*|server ${targetService}:8000;|' ./nginx/${UPSTREAM_FILE_NAME}"
                                     } else {
                                         commands << "echo 'Skipping Nginx Upstream Switch because TARGET_COLOR is Both (Preserving current active upstream)'"
                                     }

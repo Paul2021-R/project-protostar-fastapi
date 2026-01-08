@@ -9,20 +9,26 @@ pipeline {
         DISCORD_CREDS_ID = 'discord-webhook-url'
     }
 
-    parameters {
-        booleanParam(name: 'PRUNE_ALL', defaultValue: false, description: 'If checked, runs "docker system prune -a --force" cleaning build cache as well. Default is "docker image prune -f" which only cleans dangling images.')
-    }
+
 
     stages {
         stage('Connect & Prune') {
             steps {
                 script {
                     try {
-                        sshagent(credentials: [TARGET_SSH_CREDS_ID]) {
-                            def pruneCmd = params.PRUNE_ALL ? "docker system prune -a --force" : "docker image prune -f"
-                            echo "Running cleanup command: ${pruneCmd}"
+sshagent(credentials: [TARGET_SSH_CREDS_ID]) {
+                            // 1. Define Image Name
+                            def IMAGE_NAME = 'ghcr.io/paul2021-r/project-protostar-fastapi'
                             
-                            sh "ssh -o StrictHostKeyChecking=no -p ${TARGET_PORT} ${TARGET_HOST} '${pruneCmd}'"
+                            // 2. Logic: List images -> Skip first 2 (Keep Latest & Previous for Blue/Green safety) -> Delete others
+                            // Note: 'docker rmi' will fail if image is in use, which is good. We swallow the error with '|| true'.
+                            def pruneCmd = "docker images --format '{{.Repository}}:{{.Tag}}' ${IMAGE_NAME} | tail -n +3 | xargs -r docker rmi || true"
+                            
+                            echo "Running targeted cleanup for ${IMAGE_NAME}..."
+                            sh "ssh -o StrictHostKeyChecking=no -p ${TARGET_PORT} ${TARGET_HOST} \"${pruneCmd}\""
+                            
+                            // Optional: Still run dangling prune to clean up <none> images
+                            sh "ssh -o StrictHostKeyChecking=no -p ${TARGET_PORT} ${TARGET_HOST} 'docker image prune -f'"
                         }
                         echo "Cleanup successful."
                     } catch (Exception e) {

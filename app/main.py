@@ -5,6 +5,7 @@ from core.database import init_db
 from core.ai import generate_response_stream
 from core.ai import init_ai_context
 from core.worker import run_worker
+from core.worker_summary import run_summary_worker
 import asyncio
 from fastapi.responses import StreamingResponse
 from core.silence_health_checker import report_health_status_to_redis
@@ -25,6 +26,7 @@ async def main_lifespan(app: FastAPI): # context manager 패턴
     await init_ai_context()
 
     worker_task = asyncio.create_task(run_worker())
+    summary_task = asyncio.create_task(run_summary_worker())
     health_task = asyncio.create_task(report_health_status_to_redis(INSTANCE_ID))
     
     print(f"🚀 FastAPI Instance {INSTANCE_ID} Started & Reporting Health...")
@@ -32,6 +34,7 @@ async def main_lifespan(app: FastAPI): # context manager 패턴
     yield # 기준점
     # 영역 2 - on module destroy 
     worker_task.cancel()
+    summary_task.cancel()
     health_task.cancel()
 
     # Graceful Shutdown - 종료 시 출석부에서 즉시 제거
@@ -50,6 +53,7 @@ async def main_lifespan(app: FastAPI): # context manager 패턴
     try:
         await worker_task
         await health_task
+        await summary_task
     except asyncio.CancelledError:
         pass
 

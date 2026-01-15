@@ -1,11 +1,15 @@
 import os
 import glob
+import logging
 from textwrap import dedent
 from openai import AsyncOpenAI
 from core.config import settings
 
 # [전역 변수] 문단 단위로 쪼개진 지식 조각들 (Chunks)
 KNOWLEDGE_CHUNKS = []
+
+logger = logging.getLogger("uvicorn")
+
 
 client = AsyncOpenAI(
     api_key=settings.OPENROUTER_API_KEY,
@@ -78,7 +82,15 @@ def retrieve_relevant_chunks(query: str, top_k: int = 3) -> str:
     yield "\n\n---\n\n".join(top_results)
 
 
-async def generate_response_stream(prompt: str, mode:str = 'general', context: str = ''):
+async def generate_response_stream(
+    prompt: str, 
+    mode:str = 'general',
+    context: str = '',
+    history: list[dict] = None
+    ):
+
+    if history is None:
+        history = []
     # 1. Retrieval (검색): 질문과 관련된 자료만 가져오기
     # 사용자가 직접 넘겨준 context가 있으면 그걸 우선, 없으면 DB에서 검색
     found_context = context
@@ -120,9 +132,11 @@ async def generate_response_stream(prompt: str, mode:str = 'general', context: s
         stream = await client.chat.completions.create(
             model=settings.OPENROUTER_MODEL,
             messages=[
-                {"role": "system", "content": "당신은 Protostar AI 에이전트 비서로서 서비스를 블로그에 탑재되어 있어서, 이용자의 이력 어필 블로그 글을 첨부 시 질문자의 요청에 맞춰 답변하기를 해주는 비서입니다."},
-                {"role": "user", "content": full_prompt}
-            ],
+                {"role": "system", "content": "당신은 Protostar AI 에이전트 비서로서 서비스를 블로그에 탑재되어 있어서, 이용자의 이력 어필 블로그 글을 첨부 시 질문자의 요청에 맞춰 답변하기를 해주는 비서입니다."}
+                ] + history + 
+                [
+                    {"role": "user", "content": full_prompt}
+                ],
             stream=True, # 스트리밍 활성화
             temperature=0.7, # 사실 기반 답변은 0.0에 둬야 하나 지금은 일단 이렇게 둘 것. 
         )
@@ -134,3 +148,72 @@ async def generate_response_stream(prompt: str, mode:str = 'general', context: s
                 yield chunk.choices[0].delta.content
     except Exception as e:
         yield (f"❌ AI Error: {str(e)}")
+
+async def generate_summary(origian_text: str, model: str = None) -> dict:
+    """
+    Main Worker 의 답변을 요약하는 함수
+    - 입력 : 원본 답변 텍스트
+    - 출력 : {"summary": "요약된 텍스트", "usage": {input, output, model}}
+    """
+
+    if not origian_text:
+        return {"summary": "", "usage": {}}
+
+    if len(origian_text) < 150:
+        return {
+            "summary": origian_text, 
+            "usage": {
+                "input": 0,
+                "output": 0,
+                "model": "bypass"
+            }
+        }
+
+    system_prompt = dedent("""
+    당신은 대화 요약 전문가입니다. AI 어시스턴트의 답변을 3문장 이내의 한 문단으로 요약합니다.
+
+    ## 요약 원칙
+    1. **핵심 결론/답변**을 첫 문장에 배치
+    2. **구체적 데이터**(숫자, 이름, 코드명 등)는 반드시 보존
+    3. **사용자가 다음 질문에 활용할 맥락**을 우선 포함
+
+    ## 제외 대상
+    - 인사말, 부연 설명, 예시의 상세 내용
+    - "~할 수 있습니다", "~것 같습니다" 등의 완곡 표현
+
+    ## 출력 형식
+    - 한 문단, 3문장 이내
+    - 존댓말 없이 간결한 정보 전달체 사용
+    """).strip()
+    
+    try:
+        target_model = model if model else settings.OPENROUTER_MODEL
+
+        response = await client.chat.completions.create(
+            model=target_model,
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": origian_text}
+            ],
+            stream=False,
+            temperature=0.3,
+        )
+
+        summary_text = response.choices[0].message.content.strip()
+        usage_info = response.usage
+
+        return {
+            "summary": summary_text,
+            "usage": {
+                "input": usage_info.prompt_tokens,
+                "output": usage_info.completion_tokens,
+                "model": target_model
+            }
+        }
+        
+    except Exception as e:
+        logger.error(f"❌ Summary Generation Error: {str(e)}")
+        return {
+            "summary": origian_text[:500],
+            "usage": {}
+        }

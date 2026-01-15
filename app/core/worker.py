@@ -2,8 +2,17 @@ import asyncio
 import json
 import logging
 from datetime import datetime
+from core.config import settings
+
+# 기존 Import
 from core.redis import get_redis_client
 from core.ai import generate_response_stream
+
+# DB 및 서비스 Import
+from core.database import AsyncSessionLocal 
+from core.services import save_user_message, save_initial_response, get_session_history
+from .models import Message, MessageRole, ProcessingStatus
+
 
 logger = logging.getLogger("uvicorn")
 
@@ -17,88 +26,163 @@ async def process_chat_job(job_id: str, redis_client):
     """
     단일 채팅 작업을 처리하는 함수 
     1. Redis 에서 작업 데이터 조회
-    2. AI 응답 생성 
-    3. Redis Pub/Sub 에 결과 전송
+    2. 최초 질문 저장
+    3. AI 응답 생성 (이때 전체 대화 흐름 함께 들어감)
+    4. 답변 저장
+    5. Redis Pub/Sub 에 결과 전송
+    6. AI 응답의 요약 생성 및 저장 
     """
 
     # 작업 키 확보
     task_key = f"chat:task:{job_id}"
 
-    try:
-        # 작업 데이터 데이터 조회
-        task_data_json = await redis_client.get(task_key)
+    async with AsyncSessionLocal() as db:
+        try:
+            # 작업 데이터 데이터 조회
+            task_data_json = await redis_client.get(task_key)
 
-        if not task_data_json:
-            logger.warning(f"Task data missing for job: {job_id}")
-            return
+            if not task_data_json:
+                logger.warning(f"Task data missing for job: {job_id}")
+                return
 
-        # 작업 데이터 파싱   
-        task_data = json.loads(task_data_json)
+            # 작업 데이터 파싱   
+            task_data = json.loads(task_data_json)
 
-        mode = task_data.get("mode")
-        session_id = task_data.get("sessionId")
-        user_uuid = task_data.get("uuid")
-        prompt = task_data.get("content")
-        context = task_data.get("context", "")
+            mode = task_data.get("mode")
+            session_id = task_data.get("sessionId")
+            user_uuid = task_data.get("uuid")
+            prompt = task_data.get("content")
+            context = task_data.get("context", "")
 
-        logger.info(f"🤖 Processing Job {job_id} | User: {user_uuid} | Session: {session_id}")
+            timestamp = task_data.get("timestamp")
 
-        channel = f"chat:stream:{user_uuid}-{session_id}"
+            logger.info(f"🤖 Processing Job {job_id} | User: {user_uuid} | Session: {session_id}")
+            
+            user_msg = None
 
-        # 테스트 모드
-        if mode not in ['general', 'page_context']:
-            test_message_payload = {
-                "type": 'message',
-                "content": "T",
-                "uuid": user_uuid,
-                "sessionId": session_id,
-                "timestamp": task_data.get("timestamp")
-            }
-            await redis_client.publish(channel, json.dumps(test_message_payload))
+            # 사용자 질문 DB 저장 
+            try: 
+                user_msg = await save_user_message(
+                    db,
+                    user_uuid,
+                    session_id,
+                    prompt,
+                )
+            except Exception as e:
+                logger.error(f"❌ Error saving user message: {e}")
 
-            await asyncio.sleep(TEST_DELAY) 
+            channel = f"chat:stream:{user_uuid}-{session_id}"
+
+            # 테스트 모드
+            if mode not in ['general', 'page_context']:
+                test_message_payload = {
+                    "type": 'message',
+                    "content": "T",
+                    "uuid": user_uuid,
+                    "sessionId": session_id,
+                    "timestamp": task_data.get("timestamp")
+                }
+                await redis_client.publish(channel, json.dumps(test_message_payload))
+
+                await asyncio.sleep(TEST_DELAY) 
+
+                done_payload = {
+                    "type": 'done',
+                    "content": 'done',
+                    "uuid": user_uuid,
+                    "sessionId": session_id,
+                    "timestamp": task_data.get("timestamp")
+                }
+                
+                await redis_client.publish(channel, json.dumps(done_payload))
+                await redis_client.delete(task_key)
+                logger.info(f"🗑️ [Test] Deleted task data for job: {job_id}")
+                return
+
+
+            history_context = []
+            if user_msg:
+                past_messages = await get_session_history(
+                    db,
+                    session_id,
+                    exclude_ids=[user_msg.id]
+                )
+                for msg in past_messages:
+                    final_content = msg.content_summary if msg.content_summary else msg.content_full
+
+                    role = "assistant" if msg.role == MessageRole.ASSISTANT else "user"
+
+                    history_context.append({
+                        "role": role,
+                        "content": final_content,
+                    })
+            # AI가 한 토큰(조각)를 줄 때마다 Redis로 즉시 발송
+            # 토큰 수집 준비
+            full_response_list = []
+            
+            async for token in generate_response_stream(prompt, mode, context, history=history_context):
+                full_response_list.append(token)
+                message_payload = {
+                    "type": 'message',
+                    "content": token, # 전체 문장이 아닌 '조각'
+                    "uuid": user_uuid,
+                    "sessionId": session_id,
+                    "timestamp": task_data.get("timestamp")
+                }
+                # print(token)
+                # NestJS로 조각 발송
+                await redis_client.publish(channel, json.dumps(message_payload))
 
             done_payload = {
-                "type": 'done',
-                "content": 'done',
+                "type": 'done',            # 완료 타입 (NestJS나 클라이언트에서 식별 가능)
+                "content": 'done',           # 내용은 없음
                 "uuid": user_uuid,
                 "sessionId": session_id,
-                "timestamp": task_data.get("timestamp")
+                "timestamp": datetime.now().isoformat()
             }
-            
             await redis_client.publish(channel, json.dumps(done_payload))
-            await redis_client.delete(task_key)
-            logger.info(f"🗑️ [Test] Deleted task data for job: {job_id}")
-            return
+            logger.info(f"✅ Job {job_id} Finished & DONE signal sent.")
 
-        # AI가 한 토큰(조각)를 줄 때마다 Redis로 즉시 발송
-        async for token in generate_response_stream(prompt, mode, context):
-            message_payload = {
-                "type": 'message',
-                "content": token, # 전체 문장이 아닌 '조각'
-                "uuid": user_uuid,
-                "sessionId": session_id,
-                "timestamp": task_data.get("timestamp")
+            # 답변 DB 1차 저장 
+            full_response_text = "".join(full_response_list)
+            usage_data = {
+                "input": len(prompt),
+                "output": len(full_response_text),
+                "model": settings.OPENROUTER_MODEL
             }
-            # print(token)
-            # NestJS로 조각 발송
-            await redis_client.publish(channel, json.dumps(message_payload))
 
-        done_payload = {
-            "type": 'done',            # 완료 타입 (NestJS나 클라이언트에서 식별 가능)
-            "content": 'done',           # 내용은 없음
-            "uuid": user_uuid,
-            "sessionId": session_id,
-            "timestamp": datetime.now().isoformat()
-        }
-        await redis_client.publish(channel, json.dumps(done_payload))
-        logger.info(f"✅ Job {job_id} Finished & DONE signal sent.")
+            try:
+                saved_msg = await save_initial_response(
+                    db,
+                    user_uuid,
+                    session_id,
+                    full_response_text,
+                    usage_data,
+                )
+                logger.info(f"💾 Saved AI Response. MsgID: {saved_msg.id}")
 
-        await redis_client.delete(task_key)
-        logger.info(f"🗑️ Deleted task data for job: {job_id}")
-        
-    except Exception as e:
-        logger.error(f"❌ Error processing job {job_id}: {e}")  
+                await redis_client.rpush("chat:summary:queue", str(saved_msg.id))
+                logger.info(f"🔔 Triggered Summary for MsgID: {saved_msg.id}")
+
+            except Exception as e:
+                logger.error(f"⚠️ AI response save failed: {e}")
+
+            await redis_client.delete(task_key)
+            logger.info(f"🗑️ Deleted task data for job: {job_id}")
+            
+        except Exception as e:
+            # DLQ 구현 
+            # Promtail 로 추적 중이니 식별자를 포함한 JSON 식의 출력 구현 
+            error_payload = {
+                "type": "DLQ",
+                "status": "failed",
+                "job_id": job_id,
+                "error_msg": str(e),
+                "origian_task_data": task_data if 'task_data' in locals() else None,
+                "timestamp": datetime.now().isoformat()
+            }
+            logger.error(json.dumps(error_payload, ensure_ascii=False))
+            logger.error(f"❌ Error processing job {job_id}: {e}")  # 기존 에러 핸들링, 간단한 판단용
 
 async def run_worker():
     """
@@ -109,13 +193,18 @@ async def run_worker():
     
     try:
         while True:
+
+            await semaphore.acquire()
+            
             result = await redis_client.brpop("chat:job:queue", timeout=1)
 
             if result:
                 _, job_id = result 
-                asyncio.create_task(process_chat_job(job_id, redis_client))
-
-            await asyncio.sleep(0.001)
+                task = asyncio.create_task(process_chat_job(job_id, redis_client))
+                task.add_done_callback(lambda t: semaphore.release())
+            else:
+                semaphore.release()
+                await asyncio.sleep(0.0001)
     
     except asyncio.CancelledError:
         logger.info("🛑 Worker loop cancelled.")

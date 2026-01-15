@@ -30,9 +30,12 @@ async def get_db():
         finally:
             await session.close()
 
-# 3. [수정] 자체적으로 에러를 처리하는 초기화 함수
+# 3. 자체적으로 에러를 처리하는 초기화 함수
 async def init_db():
     try:
+        # 여기서 테이블을 만들어야 들어가는 구조다..! 
+        from core.models import Message
+
         # 연결 시도 및 테이블 생성
         async with engine.begin() as conn:
             await conn.run_sync(Base.metadata.create_all)

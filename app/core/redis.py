@@ -1,6 +1,9 @@
 import redis.asyncio as redis
 import sys
 from core.config import settings
+import logging
+
+logger = logging.getLogger("uvicorn")
 
 pool = redis.ConnectionPool.from_url(
     settings.REDIS_URL,
@@ -15,9 +18,9 @@ async def init_test_redis():
     redis_client = get_redis_client()
     try:
         await redis_client.ping()
-        print("✅ Redis Connected Successfully!")
+        logger.info("✅ Redis Connected Successfully!")
     except Exception as e:
-        print(f"❌ Redis Connection Failed: {e}")
+        logger.error(f"❌ Redis Connection Failed: {e}")
         await redis_client.close()
         sys.exit(1)
     finally:

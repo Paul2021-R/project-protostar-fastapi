@@ -1,20 +1,27 @@
 from contextlib import asynccontextmanager
 from fastapi import FastAPI
+from fastapi.responses import StreamingResponse
 from core.redis import init_test_redis  
 from core.database import init_db
 from core.ai import generate_response_stream
-from core.ai import init_ai_context
+# from core.ai import init_ai_context
 from core.worker import run_worker
 from core.worker_summary import run_summary_worker
-import asyncio
-from fastapi.responses import StreamingResponse
 from core.silence_health_checker import report_health_status_to_redis
-import uuid
 from core.redis import get_redis_client
+from core.minio_client import minio_client
+from core.config import settings
+from core.worker_knowledge import run_knowledge_worker 
+
+import asyncio
+import uuid
 import logging
 
 INSTANCE_ID = f"fastapi:{str(uuid.uuid4())[:8]}"
-logger = logging.getLogger('uvicorn.error')
+logger = logging.getLogger('uvicorn')
+logger.setLevel(settings.LOG_LEVEL)
+
+logger.info(f'uvicorn log level: {settings.LOG_LEVEL}')
 
 @asynccontextmanager
 async def main_lifespan(app: FastAPI): # context manager 패턴
@@ -23,19 +30,22 @@ async def main_lifespan(app: FastAPI): # context manager 패턴
     await init_test_redis()
     await init_db()
     
-    await init_ai_context()
+    # await init_ai_context()
 
     worker_task = asyncio.create_task(run_worker())
     summary_task = asyncio.create_task(run_summary_worker())
     health_task = asyncio.create_task(report_health_status_to_redis(INSTANCE_ID))
+    rag_task = asyncio.create_task(run_knowledge_worker())
+    await minio_client.check_connection()
     
-    print(f"🚀 FastAPI Instance {INSTANCE_ID} Started & Reporting Health...")
+    logger.info(f"🚀 Protostar FastAPI Instance {INSTANCE_ID} Started & Reporting Health...")
     
     yield # 기준점
     # 영역 2 - on module destroy 
     worker_task.cancel()
     summary_task.cancel()
     health_task.cancel()
+    rag_task.cancel()
 
     # Graceful Shutdown - 종료 시 출석부에서 즉시 제거
     # 스코프 문제를 위하여 redis_client를 None으로 초기화
@@ -54,6 +64,7 @@ async def main_lifespan(app: FastAPI): # context manager 패턴
         await worker_task
         await health_task
         await summary_task
+        await rag_task
     except asyncio.CancelledError:
         pass
 

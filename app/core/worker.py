@@ -188,7 +188,7 @@ async def run_worker():
     """
     백그라운드에서 실행되며 Redis Queue(chat:job:queue)를 지속적으로 확인하는 루프 
     """
-    logger.info("🚀 Worker started. Listening to 'chat:job:queue'...")
+    logger.info("🚀 Protostar Worker started. Listening to 'chat:job:queue'...")
     redis_client = get_redis_client()
     
     try:

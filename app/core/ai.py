@@ -10,7 +10,6 @@ KNOWLEDGE_CHUNKS = []
 
 logger = logging.getLogger("uvicorn")
 
-
 client = AsyncOpenAI(
     api_key=settings.OPENROUTER_API_KEY,
     base_url="https://openrouter.ai/api/v1",
@@ -42,44 +41,44 @@ def load_and_chunk_files(directory: str):
                     if len(text.strip()) > 10:  # 너무 짧은 건 무시
                         chunks.append(f"[Source: {filename} / Para {i+1}]\n{text.strip()}")
         except Exception as e:
-            print(f"⚠️ Error loading {file_path}: {e}")
+            logger.error(f"⚠️ Error loading {file_path}: {e}")
             
     return chunks
 
-async def init_ai_context():
-    global KNOWLEDGE_CHUNKS
-    base_dir = "prompts"
+# async def init_ai_context():
+#     global KNOWLEDGE_CHUNKS
+#     base_dir = "prompts"
     
-    print(f"📂 Chunking Knowledge Base from {base_dir}/user_data/...")
-    KNOWLEDGE_CHUNKS = load_and_chunk_files(os.path.join(base_dir, "user_data"))
+#     logger.info(f"📂 Chunking Knowledge Base from {base_dir}/user_data/...")
+#     KNOWLEDGE_CHUNKS = load_and_chunk_files(os.path.join(base_dir, "user_data"))
     
-    print(f"✅ Total Knowledge Chunks: {len(KNOWLEDGE_CHUNKS)}")
+#     logger.info(f"✅ Total Knowledge Chunks: {len(KNOWLEDGE_CHUNKS)}")
 
 
-def retrieve_relevant_chunks(query: str, top_k: int = 3) -> str:
-    """
-    [Retrieval] 질문과 관련된 문단만 찾아내는 검색 엔진
-    """
-    if not KNOWLEDGE_CHUNKS:
-        yield ""
+# def retrieve_relevant_chunks(query: str, top_k: int = 3) -> str:
+#     """
+#     [Retrieval] 질문과 관련된 문단만 찾아내는 검색 엔진
+#     """
+#     if not KNOWLEDGE_CHUNKS:
+#         yield ""
 
-    query_tokens = set(query.split()) # 질문을 단어로 쪼갬
-    scores = []
+#     query_tokens = set(query.split()) # 질문을 단어로 쪼갬
+#     scores = []
 
-    for chunk in KNOWLEDGE_CHUNKS:
-        # 문단 안에 질문의 단어가 몇 개나 포함되어 있는지 점수 계산
-        score = sum(1 for token in query_tokens if token in chunk)
-        if score > 0:
-            scores.append((score, chunk))
+#     for chunk in KNOWLEDGE_CHUNKS:
+#         # 문단 안에 질문의 단어가 몇 개나 포함되어 있는지 점수 계산
+#         score = sum(1 for token in query_tokens if token in chunk)
+#         if score > 0:
+#             scores.append((score, chunk))
     
-    # 점수 높은 순으로 정렬해서 top_k개만 뽑음
-    scores.sort(key=lambda x: x[0], reverse=True)
-    top_results = [item[1] for item in scores[:top_k]]
+#     # 점수 높은 순으로 정렬해서 top_k개만 뽑음
+#     scores.sort(key=lambda x: x[0], reverse=True)
+#     top_results = [item[1] for item in scores[:top_k]]
     
-    if not top_results:
-        yield "" # 관련 내용이 하나도 없으면 빈 문자열 반환
+#     if not top_results:
+#         yield "" # 관련 내용이 하나도 없으면 빈 문자열 반환
 
-    yield "\n\n---\n\n".join(top_results)
+#     yield "\n\n---\n\n".join(top_results)
 
 
 async def generate_response_stream(
@@ -93,18 +92,17 @@ async def generate_response_stream(
         history = []
     # 1. Retrieval (검색): 질문과 관련된 자료만 가져오기
     # 사용자가 직접 넘겨준 context가 있으면 그걸 우선, 없으면 DB에서 검색
-    found_context = context
-    if not found_context:
-         # generator를 문자열로 변환
-         retrieved = retrieve_relevant_chunks(prompt)
-         found_context = "".join(list(retrieved))
+    # found_context = prompt
+    # if not found_context:
+    #      # generator를 문자열로 변환
+    #      retrieved = retrieve_relevant_chunks(prompt)
+    #      found_context = "".join(list(retrieved))
 
     # 2. Generation (생성): 찾은 자료가 없으면 답변이 어려울 수 있음 (빈 맥락 허용 여부는 정책 결정)
     
     # 3. 프롬프트 조립 (자료가 있으니 답변 생성)
     full_prompt = dedent(f"""
     <relevant_documents>
-    {found_context}
     </relevant_documents>
 
     <instruction>

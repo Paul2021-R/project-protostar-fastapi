@@ -12,6 +12,7 @@ from core.ai import generate_response_stream
 from core.database import AsyncSessionLocal 
 from core.services import save_user_message, save_initial_response, get_session_history
 from .models import Message, MessageRole, ProcessingStatus
+from core.rag_service import search_similar_docs, format_rag_context
 
 
 logger = logging.getLogger("uvicorn")
@@ -52,11 +53,38 @@ async def process_chat_job(job_id: str, redis_client):
             session_id = task_data.get("sessionId")
             user_uuid = task_data.get("uuid")
             prompt = task_data.get("content")
-            context = task_data.get("context", "")
+            base_context = task_data.get("context", "")
 
             timestamp = task_data.get("timestamp")
 
             logger.info(f"🤖 Processing Job {job_id} | User: {user_uuid} | Session: {session_id}")
+
+            # RAG 검색 로직
+            rag_system_message=""
+
+            if mode in ['general']:
+                logger.info(f"🔍 [RAG] Searching docs for: '{prompt}'")
+                found_docs = await search_similar_docs(prompt)
+
+                if found_docs:
+                    rag_context_str = format_rag_context(found_docs)
+                    rag_system_message = f"""
+You are an intelligent assistant named Protostar.
+
+[Instructions]
+- Use the provided [Retrieved Knowledge] to answer the user's question accurately.
+- If the answer is found in the knowledge, cite the source keywords if possible.
+- If the answer is NOT in the knowledge, rely on your general knowledge but mention that "This information is not in the provided documents."
+- Respond in the same language as the user's question (Korean).
+
+[Retrieved Knowledge]
+{rag_context_str}
+"""         
+                    logger.info("✅ [RAG] Context injected into system prompt.")
+                else:
+                    logger.info("⚠️ [RAG] No relevant documents found.")    
+
+            final_system_context = f"{rag_system_message}\n\n{base_context}".strip()                
             
             user_msg = None
 
@@ -120,7 +148,12 @@ async def process_chat_job(job_id: str, redis_client):
             # 토큰 수집 준비
             full_response_list = []
             
-            async for token in generate_response_stream(prompt, mode, context, history=history_context):
+            async for token in generate_response_stream(
+                prompt, 
+                mode, 
+                final_system_context, 
+                history=history_context
+                ):
                 full_response_list.append(token)
                 message_payload = {
                     "type": 'message',

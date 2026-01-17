@@ -45,107 +45,85 @@ def load_and_chunk_files(directory: str):
             
     return chunks
 
-# async def init_ai_context():
-#     global KNOWLEDGE_CHUNKS
-#     base_dir = "prompts"
-    
-#     logger.info(f"📂 Chunking Knowledge Base from {base_dir}/user_data/...")
-#     KNOWLEDGE_CHUNKS = load_and_chunk_files(os.path.join(base_dir, "user_data"))
-    
-#     logger.info(f"✅ Total Knowledge Chunks: {len(KNOWLEDGE_CHUNKS)}")
-
-
-# def retrieve_relevant_chunks(query: str, top_k: int = 3) -> str:
-#     """
-#     [Retrieval] 질문과 관련된 문단만 찾아내는 검색 엔진
-#     """
-#     if not KNOWLEDGE_CHUNKS:
-#         yield ""
-
-#     query_tokens = set(query.split()) # 질문을 단어로 쪼갬
-#     scores = []
-
-#     for chunk in KNOWLEDGE_CHUNKS:
-#         # 문단 안에 질문의 단어가 몇 개나 포함되어 있는지 점수 계산
-#         score = sum(1 for token in query_tokens if token in chunk)
-#         if score > 0:
-#             scores.append((score, chunk))
-    
-#     # 점수 높은 순으로 정렬해서 top_k개만 뽑음
-#     scores.sort(key=lambda x: x[0], reverse=True)
-#     top_results = [item[1] for item in scores[:top_k]]
-    
-#     if not top_results:
-#         yield "" # 관련 내용이 하나도 없으면 빈 문자열 반환
-
-#     yield "\n\n---\n\n".join(top_results)
-
-
 async def generate_response_stream(
     prompt: str, 
-    mode:str = 'general',
-    context: str = '',
+    mode: str = 'general',
+    context: str = '', # worker.py에서 검색된 RAG 데이터가 여기에 들어옵니다.
     history: list[dict] = None
-    ):
-
+):
     if history is None:
         history = []
-    # 1. Retrieval (검색): 질문과 관련된 자료만 가져오기
-    # 사용자가 직접 넘겨준 context가 있으면 그걸 우선, 없으면 DB에서 검색
-    # found_context = prompt
-    # if not found_context:
-    #      # generator를 문자열로 변환
-    #      retrieved = retrieve_relevant_chunks(prompt)
-    #      found_context = "".join(list(retrieved))
 
-    # 2. Generation (생성): 찾은 자료가 없으면 답변이 어려울 수 있음 (빈 맥락 허용 여부는 정책 결정)
+    # ---------------------------------------------------------
+    # 1. 시스템 프롬프트 구성 (페르소나 & 규칙 정의)
+    # ---------------------------------------------------------
+    # context(RAG 검색 결과)가 있으면 포함시키고, 없으면 '정보 없음' 처리
+    context_block = ""
+    if context:
+        context_block = f"""
+<relevant_documents>
+{context}
+</relevant_documents>
+"""
+
+    system_instruction = dedent(f"""
+    당신은 류한솔 개발자의 기술 블로그 및 포트폴리오를 담당하는 AI 비서 'Protostar(프로토스타)'입니다.
     
-    # 3. 프롬프트 조립 (자료가 있으니 답변 생성)
-    full_prompt = dedent(f"""
-    <relevant_documents>
-    </relevant_documents>
-
-    <instruction>
-    You are 'Protostar', a strict and helpful AI assistant.
+    [Role & Purpose]
+    - 당신의 주 목적은 질문자에게 **류한솔(Paul)** 의 경력, 기술 스택, 프로젝트 경험을 전달해주는 것입니다.
+    - 제공된 <relevant_documents> 정보를 최우선 근거로 사용하여 답변해야 합니다.
     
-    Rules:
-    1. Answer in Korean.
-    2. 당신은 현재 블로그 상의 챗봇 서비스이며 Protostar 라는 이름을 갖고 있는 지원 AI 입니다. 
-    3. 당신의 역할은 다음과 같습니다.
-        - 당신에게 사전 자료가 존재한다면 해당 자료를 기반으로 하여 이용자들의 이력서, 경력, 능력치를 질문자에게 어필하거나 소개합니다. (단 현재는 개발중이므로 이력서나 경력, 능력치에 대한 어필은 불가능하니 질문자가 물어볼 시 양해를 구해야 합니다.)
-        - 당신에게 블로그 상에서 제공되는 자료에 대해 답변을 요청할 경우 이에 맞춰 답변을 해주어야 합니다. 핵심 파악, 요약 등의 답변을 해주면 됩니다.
-        - 블로그나 개인의 이력과 관련되지 않은 일반적인 질문에는 '권한 없음' 이란 이유 하에 답변을 하지 말아야 합니다. 
-    4. 챗봇의 환경에서 제공되므로 텍스트 답변만 해주어야 하며 강조 표현을 비롯한 다양한 텍스트 변화는 필요하지 않습니다. 
-    5. 모든 답변에서 핵심은, 질문자의 요지에 대한 결론을 우선 제시하며 근거나 내용은 하위에 기재합니다. 
-    6. 모든 답변의 형태는 공손하고, 친절하며, 이모티콘을 활용해야 하며, 가능한 양은 3문단 이하로 작성이 필요합니다. 
-    </instruction>
-
-    <user_question>
-    {prompt}
-    </user_question>
+    [Strict Rules]
+    1. **Language**: **한국어**로 답변하십시오. 다른 언어가 들어올 때만 이에 맞게 대응하십시오.
+    2. **Context First**: 
+       - <relevant_documents>에 있는 내용이라면, 해당 내용을 요약 및 인용하여 전문적으로 답변하십시오.
+       - 문서에 없는 내용이지만 개발/IT 일반 상식이라면 답변하되, "제공된 문서에는 없지만 일반적인 지식으로는..." 이라고 서두를 떼십시오.
+       - **블로그/이력/개발과 전혀 무관한 질문**(예: 오늘 점심 메뉴 추천, 연예인 가십 등)에는 "죄송합니다. 저는 기술 블로그 안내를 위한 AI이므로 해당 질문에는 답변드리기 어렵습니다."라고 정중히 거절하십시오.
+    3. **Tone & Manner**:
+       - 공손하고 친절하며 전문적인 '비서'의 말투를 사용하십시오.
+       - 적절한 이모지(😊, 💡, 🚀 등)를 사용하여 딱딱하지 않게 답변하십시오.
+    4. **Format**:
+       - 핵심 결론을 먼저 제시하고(두괄식), 부연 설명을 하위에 작성하십시오.
+       - 답변은 가독성을 위해 3문단 이내로 간결하게 구성하십시오.
+       - 답변 양식으로 Markdown 문법은 쓰지 말며, 띄워쓰기, 줄바꿈등을 포함한 일반 텍스트 방식으로 답변하며, 강조가 필요시 ', "  를 사용하거나, 제목을 작성 시 [] 를 사용하십시아.
+    {context_block}
     """).strip()
 
+    # ---------------------------------------------------------
+    # 2. 메시지 배열 구성
+    # ---------------------------------------------------------
+    # [System Message] -> [History] -> [User Question] 순서
+    messages = [
+        {"role": "system", "content": system_instruction}
+    ]
+    
+    # 히스토리 추가 (System 메시지 바로 뒤에 붙임)
+    if history:
+        messages.extend(history)
+        
+    # 현재 사용자 질문 추가
+    messages.append({"role": "user", "content": prompt})
 
     try:
+        # ---------------------------------------------------------
+        # 3. LLM 호출 및 스트리밍
+        # ---------------------------------------------------------
         stream = await client.chat.completions.create(
-            model=settings.OPENROUTER_MODEL,
-            messages=[
-                {"role": "system", "content": "당신은 Protostar AI 에이전트 비서로서 서비스를 블로그에 탑재되어 있어서, 이용자의 이력 어필 블로그 글을 첨부 시 질문자의 요청에 맞춰 답변하기를 해주는 비서입니다."}
-                ] + history + 
-                [
-                    {"role": "user", "content": full_prompt}
-                ],
-            stream=True, # 스트리밍 활성화
-            temperature=0.7, # 사실 기반 답변은 0.0에 둬야 하나 지금은 일단 이렇게 둘 것. 
+            model=settings.OPENROUTER_MODEL, # worker.py의 설정을 따름
+            messages=messages,
+            stream=True,
+            temperature=0.7, # 창의성과 사실성의 밸런스
+            # max_tokens=1000, # 필요 시 제한
         )
-        # 한번에 벌크로 받기 
-        # return response.choices[0].message.content
-        # 응답 조각대로 배출 
+
         async for chunk in stream:
-            if chunk.choices[0].delta.content is not None:
-                yield chunk.choices[0].delta.content
+            content = chunk.choices[0].delta.content
+            if content:
+                yield content
+
     except Exception as e:
-        yield (f"❌ AI Error: {str(e)}")
+        logger.error(f"❌ AI Generation Error: {e}")
+        yield f"죄송합니다. 답변을 생성하는 도중 오류가 발생했습니다. (Error: {str(e)})"
 
 async def generate_summary(origian_text: str, model: str = None) -> dict:
     """

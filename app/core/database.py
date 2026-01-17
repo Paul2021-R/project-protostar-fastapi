@@ -9,8 +9,13 @@ logger = logging.getLogger("uvicorn")
 # 1. 엔진 및 세션 팩토리 (기존 동일)
 engine = create_async_engine(
     settings.DATABASE_URL,
-    echo=True,
-    future=True
+    echo=False,
+    future=True,
+    pool_pre_ping=True,
+    pool_recycle=1800,
+    pool_size=10,
+    max_overflow=20,
+    
 )
 
 AsyncSessionLocal = async_sessionmaker(
@@ -38,6 +43,7 @@ async def init_db():
     try:
         # 여기서 테이블을 만들어야 들어가는 구조다..! 
         from core.models import Message
+        from core.vectorized_doc import VectorizedDoc
 
         # 연결 시도 및 테이블 생성
         async with engine.begin() as conn:

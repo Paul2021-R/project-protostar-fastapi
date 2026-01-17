@@ -7,6 +7,7 @@ class Settings(BaseSettings):
 
     OPENROUTER_API_KEY: str = ''
     OPENROUTER_MODEL: str = '' 
+    OPENROUTER_EMBEDDING_MODEL: str = ''
     SITE_URL: str = 'https://service-protostar.ddns.net'
     SITE_NAME: str = "Protostar Service"
 

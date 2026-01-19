@@ -2,12 +2,19 @@ from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sess
 from sqlalchemy.orm import declarative_base
 from core.config import settings
 import sys
+import logging
 
-# 1. 엔진 및 세션 팩토리 (기존 동일)
+logger = logging.getLogger("uvicorn")
+
+# 1. 엔진 및 세션 팩토리 
 engine = create_async_engine(
     settings.DATABASE_URL,
-    echo=True,
-    future=True
+    echo=False,
+    future=True,
+    pool_pre_ping=True,
+    pool_recycle=1800,
+    pool_size=10,
+    max_overflow=20,
 )
 
 AsyncSessionLocal = async_sessionmaker(
@@ -30,15 +37,19 @@ async def get_db():
         finally:
             await session.close()
 
-# 3. [수정] 자체적으로 에러를 처리하는 초기화 함수
+# 3. 자체적으로 에러를 처리하는 초기화 함수
 async def init_db():
     try:
+        # 여기서 테이블을 만들어야 들어가는 구조다..! 
+        from core.models import Message
+        from core.vectorized_doc import VectorizedDoc
+
         # 연결 시도 및 테이블 생성
         async with engine.begin() as conn:
             await conn.run_sync(Base.metadata.create_all)
-        print("✅ DB Connected & Tables Initialized!")
+        logger.info("✅ PostgreSQL Connected & Tables Initialized!")
     except Exception as e:
         # 에러 발생 시 여기서 로그를 남기고, 필요하면 알림을 보냄
         # 메인 서버가 죽지 않게 하거나, 반대로 여기서 sys.exit()을 호출해 강제 종료할 수도 있음
-        print(f"❌ DB Connection Failed: {e}")
+        logger.error(f"❌ PostgreSQL Connection Failed: {e}")
         sys.exit(1)

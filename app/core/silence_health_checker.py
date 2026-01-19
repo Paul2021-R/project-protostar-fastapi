@@ -5,7 +5,7 @@ import asyncio
 import time
 import json
 
-logger = logging.getLogger("health_checker")
+logger = logging.getLogger("uvicorn")
 
 async def report_health_status_to_redis(instance_id: str):
     """

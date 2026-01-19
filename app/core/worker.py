@@ -1,6 +1,7 @@
 import asyncio
 import json
 import logging
+import uuid
 from datetime import datetime
 from core.config import settings
 
@@ -37,38 +38,44 @@ async def process_chat_job(job_id: str, redis_client):
     # 작업 키 확보
     task_key = f"chat:task:{job_id}"
 
-    async with AsyncSessionLocal() as db:
+    # async with AsyncSessionLocal() as db:
+    try:
+        # 작업 데이터 데이터 조회
+        task_data_json = await redis_client.get(task_key)
+
+        if not task_data_json:
+            logger.warning(f"Task data missing for job: {job_id}")
+            return
+
+        # 작업 데이터 파싱   
+        task_data = json.loads(task_data_json)
+
+        mode = task_data.get("mode")
+        session_id = task_data.get("sessionId")
+        raw_user_uuid = task_data.get("uuid")
         try:
-            # 작업 데이터 데이터 조회
-            task_data_json = await redis_client.get(task_key)
+            user_uuid = uuid.UUID(raw_user_uuid)
+        except ValueError:
+            logger.error(f"❌ Invalid UUID format: {raw_user_uuid}")
+            return # 혹은 에러 처리 로직
 
-            if not task_data_json:
-                logger.warning(f"Task data missing for job: {job_id}")
-                return
+        prompt = task_data.get("content")
+        base_context = task_data.get("context", "")
 
-            # 작업 데이터 파싱   
-            task_data = json.loads(task_data_json)
+        timestamp = task_data.get("timestamp")
 
-            mode = task_data.get("mode")
-            session_id = task_data.get("sessionId")
-            user_uuid = task_data.get("uuid")
-            prompt = task_data.get("content")
-            base_context = task_data.get("context", "")
+        logger.info(f"🤖 Processing Job {job_id} | User: {raw_user_uuid} | Session: {session_id}")
 
-            timestamp = task_data.get("timestamp")
+        # RAG 검색 로직
+        rag_system_message=""
 
-            logger.info(f"🤖 Processing Job {job_id} | User: {user_uuid} | Session: {session_id}")
+        if mode in ['general']:
+            logger.info(f"🔍 [RAG] Searching docs for: '{prompt}'")
+            found_docs = await search_similar_docs(prompt)
 
-            # RAG 검색 로직
-            rag_system_message=""
-
-            if mode in ['general']:
-                logger.info(f"🔍 [RAG] Searching docs for: '{prompt}'")
-                found_docs = await search_similar_docs(prompt)
-
-                if found_docs:
-                    rag_context_str = format_rag_context(found_docs)
-                    rag_system_message = f"""
+            if found_docs:
+                rag_context_str = format_rag_context(found_docs)
+                rag_system_message = f"""
 You are an intelligent assistant named Protostar.
 
 [Instructions]
@@ -80,15 +87,16 @@ You are an intelligent assistant named Protostar.
 [Retrieved Knowledge]
 {rag_context_str}
 """         
-                    logger.info("✅ [RAG] Context injected into system prompt.")
-                else:
-                    logger.info("⚠️ [RAG] No relevant documents found.")    
+                logger.info("✅ [RAG] Context injected into system prompt.")
+            else:
+                logger.info("⚠️ [RAG] No relevant documents found.")    
 
-            final_system_context = f"{rag_system_message}\n\n{base_context}".strip()                
-            
-            user_msg = None
+        final_system_context = f"{rag_system_message}\n\n{base_context}".strip()                
+        
+        user_msg = None
 
-            # 사용자 질문 DB 저장 
+        # 사용자 질문 DB 저장 
+        async with AsyncSessionLocal() as db:
             try: 
                 user_msg = await save_user_message(
                     db,
@@ -96,44 +104,47 @@ You are an intelligent assistant named Protostar.
                     session_id,
                     prompt,
                 )
+                user_msg_id = user_msg.id
             except Exception as e:
                 logger.error(f"❌ Error saving user message: {e}")
+                raise e
 
-            channel = f"chat:stream:{user_uuid}-{session_id}"
+        channel = f"chat:stream:{raw_user_uuid}-{session_id}"
 
-            # 테스트 모드
-            if mode not in ['general', 'page_context']:
-                test_message_payload = {
-                    "type": 'message',
-                    "content": "T",
-                    "uuid": user_uuid,
-                    "sessionId": session_id,
-                    "timestamp": task_data.get("timestamp")
-                }
-                await redis_client.publish(channel, json.dumps(test_message_payload))
+        # 테스트 모드
+        if mode not in ['general', 'page_context']:
+            test_message_payload = {
+                "type": 'message',
+                "content": "T",
+                "uuid": raw_user_uuid,
+                "sessionId": session_id,
+                "timestamp": task_data.get("timestamp")
+            }
+            await redis_client.publish(channel, json.dumps(test_message_payload))
 
-                await asyncio.sleep(TEST_DELAY) 
+            await asyncio.sleep(TEST_DELAY) 
 
-                done_payload = {
-                    "type": 'done',
-                    "content": 'done',
-                    "uuid": user_uuid,
-                    "sessionId": session_id,
-                    "timestamp": task_data.get("timestamp")
-                }
-                
-                await redis_client.publish(channel, json.dumps(done_payload))
-                await redis_client.delete(task_key)
-                logger.info(f"🗑️ [Test] Deleted task data for job: {job_id}")
-                return
+            done_payload = {
+                "type": 'done',
+                "content": 'done',
+                "uuid": raw_user_uuid,
+                "sessionId": session_id,
+                "timestamp": task_data.get("timestamp")
+            }
+            
+            await redis_client.publish(channel, json.dumps(done_payload))
+            await redis_client.delete(task_key)
+            logger.info(f"🗑️ [Test] Deleted task data for job: {job_id}")
+            return
 
 
-            history_context = []
-            if user_msg:
+        history_context = []
+        if user_msg:
+            async with AsyncSessionLocal() as db:
                 past_messages = await get_session_history(
                     db,
                     session_id,
-                    exclude_ids=[user_msg.id]
+                    exclude_ids=[user_msg_id]
                 )
                 for msg in past_messages:
                     final_content = msg.content_summary if msg.content_summary else msg.content_full
@@ -144,46 +155,46 @@ You are an intelligent assistant named Protostar.
                         "role": role,
                         "content": final_content,
                     })
-            # AI가 한 토큰(조각)를 줄 때마다 Redis로 즉시 발송
-            # 토큰 수집 준비
-            full_response_list = []
-            
-            async for token in generate_response_stream(
-                prompt, 
-                mode, 
-                final_system_context, 
-                history=history_context
-                ):
-                full_response_list.append(token)
-                message_payload = {
-                    "type": 'message',
-                    "content": token, # 전체 문장이 아닌 '조각'
-                    "uuid": user_uuid,
-                    "sessionId": session_id,
-                    "timestamp": task_data.get("timestamp")
-                }
-                # print(token)
-                # NestJS로 조각 발송
-                await redis_client.publish(channel, json.dumps(message_payload))
-
-            done_payload = {
-                "type": 'done',            # 완료 타입 (NestJS나 클라이언트에서 식별 가능)
-                "content": 'done',           # 내용은 없음
-                "uuid": user_uuid,
+        # AI가 한 토큰(조각)를 줄 때마다 Redis로 즉시 발송
+        # 토큰 수집 준비
+        full_response_list = []
+        
+        async for token in generate_response_stream(
+            prompt, 
+            mode, 
+            final_system_context, 
+            history=history_context
+            ):
+            full_response_list.append(token)
+            message_payload = {
+                "type": 'message',
+                "content": token, # 전체 문장이 아닌 '조각'
+                "uuid": raw_user_uuid,
                 "sessionId": session_id,
-                "timestamp": datetime.now().isoformat()
+                "timestamp": task_data.get("timestamp")
             }
-            await redis_client.publish(channel, json.dumps(done_payload))
-            logger.info(f"✅ Job {job_id} Finished & DONE signal sent.")
+            # print(token)
+            # NestJS로 조각 발송
+            await redis_client.publish(channel, json.dumps(message_payload))
 
-            # 답변 DB 1차 저장 
-            full_response_text = "".join(full_response_list)
-            usage_data = {
-                "input": len(prompt),
-                "output": len(full_response_text),
-                "model": settings.OPENROUTER_MODEL
-            }
+        done_payload = {
+            "type": 'done',            # 완료 타입 (NestJS나 클라이언트에서 식별 가능)
+            "content": 'done',           # 내용은 없음
+            "uuid": raw_user_uuid,
+            "sessionId": session_id,
+            "timestamp": datetime.now().isoformat()
+        }
+        await redis_client.publish(channel, json.dumps(done_payload))
+        logger.info(f"✅ Job {job_id} Finished & DONE signal sent.")
 
+        # 답변 DB 1차 저장 
+        full_response_text = "".join(full_response_list)
+        usage_data = {
+            "input": len(prompt),
+            "output": len(full_response_text),
+            "model": settings.OPENROUTER_MODEL
+        }
+        async with AsyncSessionLocal() as db:
             try:
                 saved_msg = await save_initial_response(
                     db,
@@ -200,22 +211,22 @@ You are an intelligent assistant named Protostar.
             except Exception as e:
                 logger.error(f"⚠️ AI response save failed: {e}")
 
-            await redis_client.delete(task_key)
-            logger.info(f"🗑️ Deleted task data for job: {job_id}")
-            
-        except Exception as e:
-            # DLQ 구현 
-            # Promtail 로 추적 중이니 식별자를 포함한 JSON 식의 출력 구현 
-            error_payload = {
-                "type": "DLQ",
-                "status": "failed",
-                "job_id": job_id,
-                "error_msg": str(e),
-                "origian_task_data": task_data if 'task_data' in locals() else None,
-                "timestamp": datetime.now().isoformat()
-            }
-            logger.error(json.dumps(error_payload, ensure_ascii=False))
-            logger.error(f"❌ Error processing job {job_id}: {e}")  # 기존 에러 핸들링, 간단한 판단용
+        await redis_client.delete(task_key)
+        logger.info(f"🗑️ Deleted task data for job: {job_id}")
+        
+    except Exception as e:
+        # DLQ 구현 
+        # Promtail 로 추적 중이니 식별자를 포함한 JSON 식의 출력 구현 
+        error_payload = {
+            "type": "DLQ",
+            "status": "failed",
+            "job_id": job_id,
+            "error_msg": str(e),
+            "original_task_data": task_data if 'task_data' in locals() else None,
+            "timestamp": datetime.now().isoformat()
+        }
+        logger.error(json.dumps(error_payload, ensure_ascii=False))
+        logger.error(f"❌ Error processing job {job_id}: {e}")  # 기존 에러 핸들링, 간단한 판단용
 
 async def run_worker():
     """
@@ -229,7 +240,7 @@ async def run_worker():
 
             await semaphore.acquire()
             
-            result = await redis_client.brpop("chat:job:queue", timeout=1)
+            result = await redis_client.brpop("chat:job:queue", timeout=5)
 
             if result:
                 _, job_id = result 

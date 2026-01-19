@@ -128,7 +128,7 @@ async def process_knowledge_job(payload_json: str):
       doc_id = task_data.get("docId")
       minio_key = task_data.get("minioKey")
       bucket_name = task_data.get("minioBucket")
-      mime_type = task_data.get("mimeType")
+      # mime_type = task_data.get("mimeType")
 
       logger.info(f"📚 [Start] RAG Job | DocID: {doc_id}")
 
@@ -240,7 +240,7 @@ async def run_knowledge_worker():
           await semaphore.acquire()
           
           # NestJS가 넣는 큐 이름과 일치해야 함
-          result = await redis_client.brpop("ai:job:queue", timeout=1)
+          result = await redis_client.brpop("ai:job:queue", timeout=5)
 
           if result:
               logger.info(f"✅ [BRPOP] Job received: {result}")

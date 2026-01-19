@@ -123,21 +123,21 @@ async def generate_response_stream(
 
     except Exception as e:
         logger.error(f"❌ AI Generation Error: {e}")
-        yield f"죄송합니다. 답변을 생성하는 도중 오류가 발생했습니다. (Error: {str(e)})"
+        raise e
 
-async def generate_summary(origian_text: str, model: str = None) -> dict:
+async def generate_summary(original_text: str, model: str = None) -> dict:
     """
     Main Worker 의 답변을 요약하는 함수
     - 입력 : 원본 답변 텍스트
     - 출력 : {"summary": "요약된 텍스트", "usage": {input, output, model}}
     """
 
-    if not origian_text:
+    if not original_text:
         return {"summary": "", "usage": {}}
 
-    if len(origian_text) < 150:
+    if len(original_text) < 150:
         return {
-            "summary": origian_text, 
+            "summary": original_text, 
             "usage": {
                 "input": 0,
                 "output": 0,
@@ -169,7 +169,7 @@ async def generate_summary(origian_text: str, model: str = None) -> dict:
             model=target_model,
             messages=[
                 {"role": "system", "content": system_prompt},
-                {"role": "user", "content": origian_text}
+                {"role": "user", "content": original_text}
             ],
             stream=False,
             temperature=0.3,
@@ -178,11 +178,19 @@ async def generate_summary(origian_text: str, model: str = None) -> dict:
         summary_text = response.choices[0].message.content.strip()
         usage_info = response.usage
 
+        if usage_info:
+            input_tokens = usage_info.prompt_tokens
+            output_tokens = usage_info.completion_tokens
+        else:
+            logger.warning("⚠️ Usage info missing in API response.")
+            input_tokens = 0
+            output_tokens = 0
+
         return {
             "summary": summary_text,
             "usage": {
-                "input": usage_info.prompt_tokens,
-                "output": usage_info.completion_tokens,
+                "input": input_tokens,
+                "output": output_tokens,
                 "model": target_model
             }
         }
@@ -190,6 +198,6 @@ async def generate_summary(origian_text: str, model: str = None) -> dict:
     except Exception as e:
         logger.error(f"❌ Summary Generation Error: {str(e)}")
         return {
-            "summary": origian_text[:500],
+            "summary": original_text[:500],
             "usage": {}
         }

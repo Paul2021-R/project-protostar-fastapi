@@ -35,7 +35,7 @@ class MinioClientWrapper:
     except Exception as e:
       logger.error(f"❌ MinIO Connection Failed: {e}")
 
-  async def get_file_content(self, object_name: str, bucket_name: str = None) -> bytes:
+  async def get_file_content(self, object_name: str, bucket_name: str = None) -> bytes | None:
     """
     MinIO 에서 원본 데이터를 다운 + 바이트로 변환함.
     """
@@ -53,6 +53,7 @@ class MinioClientWrapper:
       return content
     except S3Error as e:
       logger.error(f"❌ MinIO File Download Failed: {e}")
+      return None
     finally:
       if response:
         response.close()

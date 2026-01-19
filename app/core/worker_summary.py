@@ -57,7 +57,7 @@ async def run_summary_worker():
       try: 
         result = await redis_client.brpop(
           "chat:summary:queue",
-          timeout=1
+          timeout=5
         )
 
         if result:

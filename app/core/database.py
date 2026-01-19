@@ -6,7 +6,7 @@ import logging
 
 logger = logging.getLogger("uvicorn")
 
-# 1. 엔진 및 세션 팩토리 (기존 동일)
+# 1. 엔진 및 세션 팩토리 
 engine = create_async_engine(
     settings.DATABASE_URL,
     echo=False,
@@ -15,7 +15,6 @@ engine = create_async_engine(
     pool_recycle=1800,
     pool_size=10,
     max_overflow=20,
-    
 )
 
 AsyncSessionLocal = async_sessionmaker(

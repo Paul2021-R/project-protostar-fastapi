@@ -13,8 +13,8 @@ class Settings(BaseSettings):
 
     # MinIO 설정
     MINIO_ENDPOINT: str = "http://localhost:9000"
-    MINIO_ACCESS_KEY: str = "admin"
-    MINIO_SECRET_KEY: str = "admin"
+    MINIO_ACCESS_KEY: str = ""
+    MINIO_SECRET_KEY: str = ""
     MINIO_BUCKET_NAME: str = "protostar-knowledge"
     MINIO_SECURE: bool = False  # True면 https, False면 http
     

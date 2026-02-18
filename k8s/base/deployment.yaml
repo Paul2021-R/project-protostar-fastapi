@@ -1,0 +1,43 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: protostar-fastapi
+  namespace: service
+  labels:
+    app: protostar
+    tier: backend
+    env: dev
+spec: 
+  replicas: 1
+  selector:
+    matchLabels:
+      app: protostar
+      tier: backend
+  template:
+    metadata:
+      labels:
+        app: protostar
+        tier: backend
+        env: dev
+    spec:
+      # nodeSelector:
+      #   kubernetes.io/hostname: A5
+      imagePullSecrets:
+        - name: ghcr-secret
+      containers:
+        - name: protostar-fastapi
+          image: ghcr.io/paul2021-r/project-protostar-fastapi:44
+          ports:
+            - containerPort: 8000
+          envFrom:
+            - configMapRef:
+               name: protostar-fastapi-config
+            - secretRef:
+               name: protostar-fastapi-secret
+          resources: 
+            limits:
+              memory: "512Mi"
+              cpu: "1000m"
+            requests:
+              memory: "256Mi"
+              cpu: "500m"

@@ -6,7 +6,6 @@ metadata:
   labels:
     app: protostar
     tier: backend
-    env: dev
 spec: 
   replicas: 1
   selector:
@@ -18,10 +17,7 @@ spec:
       labels:
         app: protostar
         tier: backend
-        env: dev
     spec:
-      # nodeSelector:
-      #   kubernetes.io/hostname: A5
       imagePullSecrets:
         - name: ghcr-secret
       containers:
@@ -34,10 +30,3 @@ spec:
                name: protostar-fastapi-config
             - secretRef:
                name: protostar-fastapi-secret
-          resources: 
-            limits:
-              memory: "512Mi"
-              cpu: "1000m"
-            requests:
-              memory: "256Mi"
-              cpu: "500m"

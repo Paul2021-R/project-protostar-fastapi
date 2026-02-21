@@ -3,6 +3,8 @@ kind: Kustomization
 
 resources:
   - ../../base
+  - secret.yaml
+  - configMap.yaml
 
 patches:
   - patch: |-

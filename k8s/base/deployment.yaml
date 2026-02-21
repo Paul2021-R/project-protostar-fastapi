@@ -1,0 +1,32 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: protostar-fastapi
+  namespace: service
+  labels:
+    app: protostar
+    tier: backend
+spec: 
+  replicas: 1
+  selector:
+    matchLabels:
+      app: protostar
+      tier: backend
+  template:
+    metadata:
+      labels:
+        app: protostar
+        tier: backend
+    spec:
+      imagePullSecrets:
+        - name: ghcr-secret
+      containers:
+        - name: protostar-fastapi
+          image: ghcr.io/paul2021-r/project-protostar-fastapi:44
+          ports:
+            - containerPort: 8000
+          envFrom:
+            - configMapRef:
+               name: protostar-fastapi-config
+            - secretRef:
+               name: protostar-fastapi-secret

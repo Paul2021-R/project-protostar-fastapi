@@ -1,0 +1,16 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: protostar-fastapi-service
+  namespace: service
+  labels:
+    app: protostar
+    tier: backend
+spec:
+  selector:
+    app: protostar
+    tier: backend
+  ports:
+    - port: 8000
+      targetPort: 8000
+  type: ClusterIP

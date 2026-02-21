@@ -1,0 +1,15 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: protostar-fastapi-config
+  namespace: service
+  labels:
+    app: protostar
+    tier: backend
+data:
+  OPENROUTER_MODEL: "google/gemini-3-flash-preview"
+  OPENROUTER_EMBEDDING_MODEL: "openai/text-embedding-3-small"
+  MINIO_ENDPOINT: "192.168.0.41:9000"
+  MINIO_BUCKET_NAME: "protostar-knowledge"
+  NEST_API_URL: "http://protostar-nest-service:3000"
+  LOG_LEVEL: "INFO"

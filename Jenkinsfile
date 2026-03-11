@@ -44,6 +44,7 @@ pipeline {
                                 /kaniko/executor \
                                 --context=dir:///workspace/workspace/protostar-fastapi/app \
                                 --dockerfile=/workspace/workspace/protostar-fastapi/app/Dockerfile \
+                                --target=runner \
                                 --destination=${IMAGE_NAME}:${BUILD_NUMBER} \
                                 --cache=true
                             """
